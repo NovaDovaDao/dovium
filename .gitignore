@@ -1,0 +1,9 @@
+node_modules/
+dist/
+logs/
+.env
+*.log
+
+# BirdEye Integration
+logs/
+*.log
