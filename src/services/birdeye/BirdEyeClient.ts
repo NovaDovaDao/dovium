@@ -19,6 +19,7 @@ import {
   TokenHoldersParams,
   TokenHoldersResponse,
 } from "../../core/types/TokenHolders.ts";
+import { WalletTransactionHistoryResponse } from "../../core/types/WalletTransactionHistory.ts";
 
 export class BirdEyeClient implements IBirdEyeClient {
   private readonly baseUrl: string;
@@ -90,7 +91,7 @@ export class BirdEyeClient implements IBirdEyeClient {
     try {
       const defaultParams = {
         address: "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
-        timeFrame: "24h",
+        timeFrame: "30min",
         sortType: "desc",
         sortBy: "volume",
         offset: 0,
@@ -117,23 +118,6 @@ export class BirdEyeClient implements IBirdEyeClient {
 
       const traders = response.data.data.items;
 
-      // const timestamp = new Date().toISOString().split("T")[0];
-      // const logDir = path.join(__dirname, "../../../logs");
-      // const filePath = path.join(logDir, `top_traders_${timestamp}.json`);
-
-      // if (!fs.existsSync(logDir)) {
-      //   fs.mkdirSync(logDir, { recursive: true });
-      // }
-
-      // const logData = {
-      //   timestamp: new Date().toISOString(),
-      //   parameters: queryParams,
-      //   traders: traders,
-      // };
-
-      // fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
-      // console.log(`Top traders data saved to ${filePath}`);
-
       return traders;
     } catch (error) {
       console.error("Error fetching top traders:", error);
@@ -149,7 +133,7 @@ export class BirdEyeClient implements IBirdEyeClient {
         sortBy: "rank",
         sortType: "asc",
         offset: 0,
-        limit: 20,
+        limit: 5,
       };
 
       const queryParams = { ...defaultParams, ...params };
@@ -171,28 +155,11 @@ export class BirdEyeClient implements IBirdEyeClient {
         }
       );
 
-      if (!response.data.success) {
+      if (!response.data.data) {
         throw new Error("Failed to fetch trending tokens");
       }
 
-      const tokens = response.data.data.items;
-
-      // const timestamp = new Date().toISOString().split("T")[0];
-      // const logDir = path.join(__dirname, "../../../logs");
-      // const filePath = path.join(logDir, `trending_tokens_${timestamp}.json`);
-
-      // if (!fs.existsSync(logDir)) {
-      //   fs.mkdirSync(logDir, { recursive: true });
-      // }
-
-      // const logData = {
-      //   timestamp: new Date().toISOString(),
-      //   parameters: queryParams,
-      //   tokens: tokens,
-      // };
-
-      // fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
-      // console.log(`Trending tokens data saved to ${filePath}`);
+      const tokens = response.data.data.tokens;
 
       return tokens;
     } catch (error) {
@@ -261,5 +228,28 @@ export class BirdEyeClient implements IBirdEyeClient {
       console.error("Error fetching token holders:", error);
       throw error;
     }
+  }
+
+  async walletTransactionHistory({ wallet }: { wallet: string }) {
+    const response = await axios.get<WalletTransactionHistoryResponse>(
+      `${this.baseUrl}/v1/wallet/tx_list`,
+      {
+        params: {
+          wallet,
+          limit: 1000,
+        },
+        headers: {
+          accept: "application/json",
+          "x-chain": this.chain,
+          "X-API-KEY": this.apiKey,
+        },
+      }
+    );
+
+    if (!response.data.success) {
+      throw new Error("Failed to fetch token holders");
+    }
+
+    return response.data.data.solana;
   }
 }

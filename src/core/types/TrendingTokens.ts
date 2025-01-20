@@ -8,15 +8,16 @@ export interface TrendingToken {
 }
 
 export interface TrendingTokensResponse {
-  success: boolean;
   data: {
-    items: TrendingToken[];
+    updateUnixTime: number;
+    updateTime: string;
+    tokens: TrendingToken[];
   };
 }
 
 export interface TrendingTokensParams {
-  sortBy?: 'rank' | 'volume24hUSD' | 'liquidity';
-  sortType?: 'asc' | 'desc';
+  sortBy?: "rank" | "volume24hUSD" | "liquidity";
+  sortType?: "asc" | "desc";
   offset?: number;
   limit?: number;
 }

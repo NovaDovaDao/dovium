@@ -1,10 +1,14 @@
 export interface TopTrader {
-  address: string;
+  tokenAddress: string;
+  owner: string;
+  tags: string[];
+  type: string;
   volume: number;
-  trades: number;
-  volumeUSD: number;
-  priceAvg: number;
-  timestamp: number;
+  trade: number;
+  tradeBuy: number;
+  tradeSell: number;
+  volumeBuy: number;
+  volumeSell: number;
 }
 
 export interface TopTradersResponse {
@@ -16,9 +20,9 @@ export interface TopTradersResponse {
 
 export interface TopTradersParams {
   address?: string;
-  timeFrame?: '30m' | '1h' | '2h' | '4h' | '6h' | '8h' | '12h' | '24h';
-  sortType?: 'desc' | 'asc';
-  sortBy?: 'volume' | 'trade';
+  timeFrame?: "30m" | "1h" | "2h" | "4h" | "6h" | "8h" | "12h" | "24h";
+  sortType?: "desc" | "asc";
+  sortBy?: "volume" | "trade";
   offset?: number;
   limit?: number;
 }

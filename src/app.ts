@@ -1,26 +1,20 @@
 import { Application, Router } from "https://deno.land/x/oak@v17.1.4/mod.ts";
 import { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 import "jsr:@std/dotenv/load";
+import { Traders } from "./services/traders/Traders.ts";
 
 const router = new Router();
+const tradersService = new Traders();
 
 router.get("/toptraders", async (context) => {
-  /**
-   *
-   * get analyzed list of traders from redis
-   */
-  context.response.body = [];
+  const response = await tradersService.getTopTraders();
+  context.response.body = response;
 });
 
-router.post("/analyze", async (context) => {
-  /**
-   *
-   * 1. get trending tokens
-   * 2. get top traders per volume of those tokens
-   * 3. get and store history of those traders
-   * 4. loop through top traders and call n8n to analyze each one posting its results in redis
-   */
-  context.response.status = 200;
+router.get("/analyze", async (context) => {
+  const tokenAddresses = context.request.url.searchParams.getAll("token");
+  const response = await tradersService.analyze({ tokenAddresses });
+  context.response.body = response;
 });
 
 const app = new Application();
