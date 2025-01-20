@@ -1,11 +1,24 @@
-import axios from 'axios';
-import * as path from 'path';
-import * as fs from 'fs';
-import { IBirdEyeClient } from '../../core/interfaces/IBirdEyeClient';
-import { BirdEyeToken, BirdEyeResponse } from '../../core/types/BirdEyeToken';
-import { TopTrader, TopTradersParams, TopTradersResponse } from '../../core/types/TopTraders';
-import { TrendingToken, TrendingTokensParams, TrendingTokensResponse } from '../../core/types/TrendingTokens';
-import { TokenHolder, TokenHoldersParams, TokenHoldersResponse } from '../../core/types/TokenHolders';
+import axios from "axios";
+import { IBirdEyeClient } from "../../core/interfaces/IBirdEyeClient.ts";
+import {
+  BirdEyeToken,
+  BirdEyeResponse,
+} from "../../core/types/BirdEyeToken.ts";
+import {
+  TopTrader,
+  TopTradersParams,
+  TopTradersResponse,
+} from "../../core/types/TopTraders.ts";
+import {
+  TrendingToken,
+  TrendingTokensParams,
+  TrendingTokensResponse,
+} from "../../core/types/TrendingTokens.ts";
+import {
+  TokenHolder,
+  TokenHoldersParams,
+  TokenHoldersResponse,
+} from "../../core/types/TokenHolders.ts";
 
 export class BirdEyeClient implements IBirdEyeClient {
   private readonly baseUrl: string;
@@ -13,9 +26,10 @@ export class BirdEyeClient implements IBirdEyeClient {
   private readonly chain: string;
 
   constructor() {
-    this.baseUrl = process.env.BIRDEYE_BASE_URL || 'https://public-api.birdeye.so';
-    this.apiKey = process.env.BIRDEYE_API_KEY || '';
-    this.chain = process.env.CHAIN || 'solana';
+    this.baseUrl =
+      Deno.env.get("BIRDEYE_BASE_URL") || "https://public-api.birdeye.so";
+    this.apiKey = Deno.env.get("BIRDEYE_API_KEY") || "";
+    this.chain = Deno.env.get("CHAIN") || "solana";
   }
 
   async getTokenList(params: {
@@ -26,45 +40,48 @@ export class BirdEyeClient implements IBirdEyeClient {
     minLiquidity: number;
   }): Promise<BirdEyeToken[]> {
     try {
-      const response = await axios.get<BirdEyeResponse>(`${this.baseUrl}/defi/tokenlist`, {
-        params: {
-          sort_by: params.sortBy,
-          sort_type: params.sortType,
-          offset: params.offset,
-          limit: params.limit,
-          min_liquidity: params.minLiquidity
-        },
-        headers: {
-          'accept': 'application/json',
-          'x-chain': this.chain,
-          'X-API-KEY': this.apiKey
+      const response = await axios.get<BirdEyeResponse>(
+        `${this.baseUrl}/defi/tokenlist`,
+        {
+          params: {
+            sort_by: params.sortBy,
+            sort_type: params.sortType,
+            offset: params.offset,
+            limit: params.limit,
+            min_liquidity: params.minLiquidity,
+          },
+          headers: {
+            accept: "application/json",
+            "x-chain": this.chain,
+            "X-API-KEY": this.apiKey,
+          },
         }
-      });
+      );
 
       const tokens = response.data.data.tokens;
-      
-      const timestamp = new Date().toISOString().replace(/[:]/g, '-');
-      const logDir = path.join(__dirname, '../../../logs');
-      const filePath = path.join(logDir, `token_data_${timestamp}.json`);
 
-      if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-      }
+      // const timestamp = new Date().toISOString().replace(/[:]/g, "-");
+      // const logDir = path.join(__dirname, "../../../logs");
+      // const filePath = path.join(logDir, `token_data_${timestamp}.json`);
 
-      const simplifiedTokens = tokens.map(token => ({
-        address: token.address,
-        liquidity: token.liquidity,
-        symbol: token.symbol,
-        name: token.name,
-        v24hChangePercent: token.v24hChangePercent
-      }));
+      // if (!fs.existsSync(logDir)) {
+      //   fs.mkdirSync(logDir, { recursive: true });
+      // }
 
-      fs.writeFileSync(filePath, JSON.stringify(simplifiedTokens, null, 2));
-      console.log(`Token data saved to ${filePath}`);
+      // const simplifiedTokens = tokens.map((token) => ({
+      //   address: token.address,
+      //   liquidity: token.liquidity,
+      //   symbol: token.symbol,
+      //   name: token.name,
+      //   v24hChangePercent: token.v24hChangePercent,
+      // }));
+
+      // fs.writeFileSync(filePath, JSON.stringify(simplifiedTokens, null, 2));
+      // console.log(`Token data saved to ${filePath}`);
 
       return tokens;
     } catch (error) {
-      console.error('Error fetching token list:', error);
+      console.error("Error fetching token list:", error);
       throw error;
     }
   }
@@ -72,12 +89,12 @@ export class BirdEyeClient implements IBirdEyeClient {
   async getTopTraders(params: TopTradersParams = {}): Promise<TopTrader[]> {
     try {
       const defaultParams = {
-        address: 'So11111111111111111111111111111111111111112',
-        timeFrame: '24h',
-        sortType: 'desc',
-        sortBy: 'volume',
+        address: "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+        timeFrame: "24h",
+        sortType: "desc",
+        sortBy: "volume",
         offset: 0,
-        limit: 10
+        limit: 10,
       };
 
       const queryParams = { ...defaultParams, ...params };
@@ -87,50 +104,52 @@ export class BirdEyeClient implements IBirdEyeClient {
         {
           params: queryParams,
           headers: {
-            'accept': 'application/json',
-            'x-chain': this.chain,
-            'X-API-KEY': this.apiKey
-          }
+            accept: "application/json",
+            "x-chain": this.chain,
+            "X-API-KEY": this.apiKey,
+          },
         }
       );
 
       if (!response.data.success) {
-        throw new Error('Failed to fetch top traders data');
+        throw new Error("Failed to fetch top traders data");
       }
 
       const traders = response.data.data.items;
-      
-      const timestamp = new Date().toISOString().split('T')[0];
-      const logDir = path.join(__dirname, '../../../logs');
-      const filePath = path.join(logDir, `top_traders_${timestamp}.json`);
 
-      if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-      }
+      // const timestamp = new Date().toISOString().split("T")[0];
+      // const logDir = path.join(__dirname, "../../../logs");
+      // const filePath = path.join(logDir, `top_traders_${timestamp}.json`);
 
-      const logData = {
-        timestamp: new Date().toISOString(),
-        parameters: queryParams,
-        traders: traders
-      };
+      // if (!fs.existsSync(logDir)) {
+      //   fs.mkdirSync(logDir, { recursive: true });
+      // }
 
-      fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
-      console.log(`Top traders data saved to ${filePath}`);
+      // const logData = {
+      //   timestamp: new Date().toISOString(),
+      //   parameters: queryParams,
+      //   traders: traders,
+      // };
+
+      // fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
+      // console.log(`Top traders data saved to ${filePath}`);
 
       return traders;
     } catch (error) {
-      console.error('Error fetching top traders:', error);
+      console.error("Error fetching top traders:", error);
       throw error;
     }
   }
 
-  async getTrendingTokens(params: TrendingTokensParams = {}): Promise<TrendingToken[]> {
+  async getTrendingTokens(
+    params: TrendingTokensParams = {}
+  ): Promise<TrendingToken[]> {
     try {
       const defaultParams = {
-        sortBy: 'rank',
-        sortType: 'asc',
+        sortBy: "rank",
+        sortType: "asc",
         offset: 0,
-        limit: 20
+        limit: 20,
       };
 
       const queryParams = { ...defaultParams, ...params };
@@ -142,42 +161,42 @@ export class BirdEyeClient implements IBirdEyeClient {
             sort_by: queryParams.sortBy,
             sort_type: queryParams.sortType,
             offset: queryParams.offset,
-            limit: queryParams.limit
+            limit: queryParams.limit,
           },
           headers: {
-            'accept': 'application/json',
-            'x-chain': this.chain,
-            'X-API-KEY': this.apiKey
-          }
+            accept: "application/json",
+            "x-chain": this.chain,
+            "X-API-KEY": this.apiKey,
+          },
         }
       );
 
       if (!response.data.success) {
-        throw new Error('Failed to fetch trending tokens');
+        throw new Error("Failed to fetch trending tokens");
       }
 
       const tokens = response.data.data.items;
-      
-      const timestamp = new Date().toISOString().split('T')[0];
-      const logDir = path.join(__dirname, '../../../logs');
-      const filePath = path.join(logDir, `trending_tokens_${timestamp}.json`);
 
-      if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-      }
+      // const timestamp = new Date().toISOString().split("T")[0];
+      // const logDir = path.join(__dirname, "../../../logs");
+      // const filePath = path.join(logDir, `trending_tokens_${timestamp}.json`);
 
-      const logData = {
-        timestamp: new Date().toISOString(),
-        parameters: queryParams,
-        tokens: tokens
-      };
+      // if (!fs.existsSync(logDir)) {
+      //   fs.mkdirSync(logDir, { recursive: true });
+      // }
 
-      fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
-      console.log(`Trending tokens data saved to ${filePath}`);
+      // const logData = {
+      //   timestamp: new Date().toISOString(),
+      //   parameters: queryParams,
+      //   tokens: tokens,
+      // };
+
+      // fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
+      // console.log(`Trending tokens data saved to ${filePath}`);
 
       return tokens;
     } catch (error) {
-      console.error('Error fetching trending tokens:', error);
+      console.error("Error fetching trending tokens:", error);
       throw error;
     }
   }
@@ -185,9 +204,9 @@ export class BirdEyeClient implements IBirdEyeClient {
   async getTokenHolders(params: TokenHoldersParams): Promise<TokenHolder[]> {
     try {
       const defaultParams = {
-        address: 'So11111111111111111111111111111111111111112',
+        address: "So11111111111111111111111111111111111111112",
         offset: 0,
-        limit: 100
+        limit: 100,
       };
 
       const queryParams = { ...defaultParams, ...params };
@@ -198,45 +217,48 @@ export class BirdEyeClient implements IBirdEyeClient {
           params: {
             address: queryParams.address,
             offset: queryParams.offset,
-            limit: queryParams.limit
+            limit: queryParams.limit,
           },
           headers: {
-            'accept': 'application/json',
-            'x-chain': this.chain,
-            'X-API-KEY': this.apiKey
-          }
+            accept: "application/json",
+            "x-chain": this.chain,
+            "X-API-KEY": this.apiKey,
+          },
         }
       );
 
       if (!response.data.success) {
-        throw new Error('Failed to fetch token holders');
+        throw new Error("Failed to fetch token holders");
       }
 
       const holders = response.data.data.items;
-      const total = response.data.data.total;
-      
-      const timestamp = new Date().toISOString().split('T')[0];
-      const logDir = path.join(__dirname, '../../../logs');
-      const filePath = path.join(logDir, `token_holders_${params.address}_${timestamp}.json`);
+      // const total = response.data.data.total;
 
-      if (!fs.existsSync(logDir)) {
-        fs.mkdirSync(logDir, { recursive: true });
-      }
+      // const timestamp = new Date().toISOString().split("T")[0];
+      // const logDir = path.join(__dirname, "../../../logs");
+      // const filePath = path.join(
+      //   logDir,
+      //   `token_holders_${params.address}_${timestamp}.json`
+      // );
 
-      const logData = {
-        timestamp: new Date().toISOString(),
-        tokenAddress: params.address,
-        parameters: queryParams,
-        totalHolders: total,
-        holders: holders
-      };
+      // if (!fs.existsSync(logDir)) {
+      //   fs.mkdirSync(logDir, { recursive: true });
+      // }
 
-      fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
-      console.log(`Token holders data saved to ${filePath}`);
+      // const logData = {
+      //   timestamp: new Date().toISOString(),
+      //   tokenAddress: params.address,
+      //   parameters: queryParams,
+      //   totalHolders: total,
+      //   holders: holders,
+      // };
+
+      // fs.writeFileSync(filePath, JSON.stringify(logData, null, 2));
+      // console.log(`Token holders data saved to ${filePath}`);
 
       return holders;
     } catch (error) {
-      console.error('Error fetching token holders:', error);
+      console.error("Error fetching token holders:", error);
       throw error;
     }
   }

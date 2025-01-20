@@ -1,5 +1,5 @@
-import { BirdEyeToken } from '../types/BirdEyeToken';
-import { TopTrader, TopTradersParams } from '../types/TopTraders';
+import { BirdEyeToken } from "../types/BirdEyeToken.ts";
+import { TopTrader, TopTradersParams } from "../types/TopTraders.ts";
 
 export interface IBirdEyeClient {
   getTokenList(params: {
@@ -9,6 +9,6 @@ export interface IBirdEyeClient {
     limit: number;
     minLiquidity: number;
   }): Promise<BirdEyeToken[]>;
-  
+
   getTopTraders(params?: TopTradersParams): Promise<TopTrader[]>;
 }
