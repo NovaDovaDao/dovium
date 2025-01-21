@@ -97,7 +97,7 @@ export class BirdEyeClient {
 
       return tokens;
     } catch (error) {
-      console.error("Error fetching trending tokens:", error);
+      this.logger.error("Error fetching trending tokens:", error);
       throw error;
     }
   }
@@ -106,28 +106,38 @@ export class BirdEyeClient {
     wallet,
     limit = 10,
   }: WalletTransactionHistoryParams) {
-    try {
-      const getHistory = () =>
-        this.apiClient.get<WalletTransactionHistoryResponse>(
-          "/v1/wallet/tx_list",
-          {
-            params: {
-              wallet,
-              limit,
-            },
-            headers: {
-              accept: "application/json",
-            },
-          }
-        );
-      const response = await getHistory();
+    let attempts = 0;
+    const maxRetries = 3;
+    const delay = 1000;
 
-      if (!response.data.data.solana) throw response;
+    while (attempts < maxRetries) {
+      try {
+        const response =
+          await this.apiClient.get<WalletTransactionHistoryResponse>(
+            "/v1/wallet/tx_list",
+            {
+              params: {
+                wallet,
+                limit,
+              },
+            }
+          );
+        if (!response.data.success) {
+          throw response;
+        }
+        return response.data.data.solana;
+      } catch (error) {
+        this.logger.error(`Error fetching data for ${wallet}`, error);
+        attempts++;
 
-      return response.data.data.solana;
-    } catch (error) {
-      this.logger.error("Failed to fetch token holders", error);
-      return [];
+        if (attempts < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        } else {
+          this.logger.error("Failed to fetch token holders", error);
+          return [];
+        }
+      }
     }
+    return [];
   }
 }

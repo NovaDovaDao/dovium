@@ -74,7 +74,7 @@ export class Traders {
       const topTraderHistory =
         await this.birdEyeClient.walletTransactionHistory({
           wallet: topTraderWallet,
-          limit: 200,
+          limit: 100,
         });
 
       const aggregatedTxs = aggregateTransactions(topTraderHistory);
