@@ -1,19 +1,19 @@
 import { Application, Router } from "https://deno.land/x/oak@v17.1.4/mod.ts";
 import { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 import "jsr:@std/dotenv/load";
-import { Traders } from "./services/traders/Traders.ts";
+import { SonarTopTraders } from "./services/sonar/SonarTopTraders.ts";
 
 const router = new Router();
-const tradersService = new Traders();
+const sonarTopTradersService = new SonarTopTraders();
 
 router.get("/toptraders", async (context) => {
-  const response = await tradersService.getTopTraders();
+  const response = await sonarTopTradersService.getTopTraders();
   context.response.body = response;
 });
 
 router.get("/analyze", async (context) => {
   const tokenAddresses = context.request.url.searchParams.getAll("token");
-  const response = await tradersService.analyze({ tokenAddresses });
+  const response = await sonarTopTradersService.analyze({ tokenAddresses });
   context.response.body = response;
 });
 

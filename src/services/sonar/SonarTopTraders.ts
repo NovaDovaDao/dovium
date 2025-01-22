@@ -4,7 +4,7 @@ import { requireRedis } from "../redis/index.ts";
 import { Logger } from "jsr:@deno-library/logger";
 import Big from "big.js";
 
-export class Traders {
+export class SonarTopTraders {
   private logger = new Logger();
   private TOP_TRADERS_KEY = "toptraders";
   private redisClient: Awaited<ReturnType<typeof requireRedis>> | null = null;
