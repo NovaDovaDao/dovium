@@ -7,3 +7,4 @@ logs/
 # BirdEye Integration
 logs/
 *.log
+.aider*
