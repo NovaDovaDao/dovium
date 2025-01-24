@@ -1,6 +1,7 @@
 {
   "tasks": {
-    "dev": "deno run --watch -A src/app.ts"
+    "dev": "deno run --watch -A src/app.ts",
+    "trade-bot": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/trader-bot.ts"
   },
   "imports": {
     "@solana/web3.js": "npm:@solana/web3.js@^1.98.0",
