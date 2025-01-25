@@ -1,7 +1,9 @@
 {
   "tasks": {
     "pumpfun-bot": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/pumpfun-bot.ts",
-    "program-listener": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/program-log-listener.ts"
+    "program-listener": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/program-log-listener.ts",
+    "holdings-tracker": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/holdings-tracker.ts",
+    "volume-bot": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/volume-bot.ts"
   },
   "imports": {
     "@coral-xyz/anchor": "npm:@coral-xyz/anchor@^0.30.1",

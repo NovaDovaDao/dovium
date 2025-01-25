@@ -1,3 +1,4 @@
+// src/services/solana/connection.ts
 import {
   Connection,
   PublicKey,
@@ -7,6 +8,7 @@ import {
 import bs58 from "bs58";
 import Big from "big.js";
 import { Logger } from "jsr:@deno-library/logger";
+import { config } from "../../config.ts";
 
 class SolanaConnection {
   private logger = new Logger();
@@ -53,6 +55,25 @@ class SolanaConnection {
     } catch (error) {
       this.logger.error("Error fetching balance", error);
       throw new Error("Error fetching SOL balance.");
+    }
+  }
+
+  async sendTransaction(transaction: string, wallet: Keypair): Promise<string> {
+    try {
+      const sig = await this.connection.sendRawTransaction(
+        bs58.decode(transaction),
+        {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+          maxRetries: config.tx.fetch_tx_max_retries
+        }
+      );
+
+      await this.connection.confirmTransaction(sig);
+      return sig;
+    } catch (error) {
+      this.logger.error("Transaction send failed:", error);
+      throw error;
     }
   }
 

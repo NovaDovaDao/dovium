@@ -9,7 +9,7 @@ import { MovingAverage } from "../../indicators/MovingAverage.ts";
 import { RSI } from "../../indicators/RSI.ts";
 import { PriceData } from "../../indicators/types.ts";
 import { VolumeProfile } from "../../indicators/VolumeProfile.ts";
-import { config } from "./config.ts";
+import { config } from "../../../config.ts";
 import { PumpFunWebSocket } from "../../pumpfun/websocket.ts";
 import { Logger } from "jsr:@deno-library/logger";
 import SolanaConnection from "../../solana/connection.ts";

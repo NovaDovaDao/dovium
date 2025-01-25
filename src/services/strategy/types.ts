@@ -8,12 +8,6 @@ export interface Strategy {
   isEnabled(): boolean;
 }
 
-export interface HFTState {
-  lastAction: "buy" | "sell" | null;
-  activePositions: Map<string, number>;
-  walletBalance: number;
-}
-
 export interface Strategy {
   analyze(data: PriceData[]): Promise<boolean>;
   execute(): Promise<void>;
