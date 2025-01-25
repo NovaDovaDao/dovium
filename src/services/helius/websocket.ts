@@ -9,43 +9,26 @@ interface LogsSubscribeListener {
   callback: (notification: LogNotification) => void;
 }
 
-type Listener = LogsSubscribeListener;
-interface Params {
-  listeners?: Listener[];
-}
-
 export class HeliusWebSocketClient {
   logger = new Logger();
   socket: StandardWebSocketClient;
 
-  constructor(params: Params) {
+  constructor() {
     const endpoint = Deno.env.get("SOLANA_WS_URL")!;
     const ws = new StandardWebSocketClient(endpoint);
 
     ws.on("open", () => {
-      this.logger.log("WebSocket is open");
-
-      this.addListeners(params.listeners);
+      this.logger.log("Helius WebSocket is open");
     });
 
     ws.on("close", () => {
-      this.logger.log("WebSocket closed");
+      this.logger.log("Helius WebSocket closed");
     });
 
     ws.on("error", () => {
-      this.logger.error("Websocket error");
+      this.logger.error("Helius WebSocket error");
     });
     this.socket = ws;
-  }
-
-  addListeners(listeners?: Params["listeners"]) {
-    if (!listeners?.length) return;
-
-    listeners.forEach((l) => {
-      if (l.method === "logsSubscribe") {
-        this.subscribeToProgramLogs(l.programId, l.callback);
-      }
-    });
   }
 
   subscribeToProgramLogs(

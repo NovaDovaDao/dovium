@@ -10,14 +10,9 @@ function main() {
 
   if (!programId) throw new Error("Program ID is required");
 
-  new HeliusWebSocketClient({
-    listeners: [
-      {
-        programId,
-        method: "logsSubscribe",
-        callback: console.log, // do something with logs
-      },
-    ],
+  const heliusWsClient = new HeliusWebSocketClient();
+  heliusWsClient.socket.on("open", () => {
+    heliusWsClient.subscribeToProgramLogs(programId, console.log);
   });
 }
 
