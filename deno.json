@@ -1,8 +1,7 @@
 {
   "tasks": {
-    "dev": "deno run --watch -A src/app.ts",
-    "trade-bot": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/trader-bot.ts",
-    "pumpfun-listener": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/pumpfun-new-mints.ts"
+    "pumpfun-bot": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/pumpfun-bot.ts",
+    "program-listener": "deno run --watch --unstable-kv --unstable-detect-cjs -A src/tasks/program-log-listener.ts"
   },
   "imports": {
     "@coral-xyz/anchor": "npm:@coral-xyz/anchor@^0.30.1",
