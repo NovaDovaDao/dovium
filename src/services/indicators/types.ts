@@ -2,6 +2,8 @@ export interface PriceData {
   price: number;
   volume: number;
   timestamp: number;
+  high: number;
+  low: number;
 }
 
 export interface IndicatorConfig {

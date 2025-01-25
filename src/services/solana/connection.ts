@@ -8,7 +8,7 @@ import bs58 from "bs58";
 import Big from "big.js";
 import { Logger } from "jsr:@deno-library/logger";
 
-class SolanaService {
+class SolanaConnection {
   private logger = new Logger();
   private connection: Connection;
   private wallet: Keypair | null = null;
@@ -81,4 +81,4 @@ class SolanaService {
   }
 }
 
-export default SolanaService;
+export default SolanaConnection;

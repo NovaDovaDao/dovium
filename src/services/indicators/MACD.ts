@@ -1,5 +1,5 @@
-import { PriceData, MACDResult, IndicatorConfig } from './types.ts';
-import { MovingAverage } from './MovingAverage.ts';
+import { PriceData, MACDResult, IndicatorConfig } from "./types.ts";
+import { MovingAverage } from "./MovingAverage.ts";
 
 export class MACD {
   private fastEMA: MovingAverage;
@@ -15,15 +15,19 @@ export class MACD {
   calculate(data: PriceData[]): MACDResult {
     const fastEMA = this.fastEMA.calculate(data);
     const slowEMA = this.slowEMA.calculate(data);
-    const macd = fastEMA[fastEMA.length - 1].value - slowEMA[slowEMA.length - 1].value;
+    const macd =
+      fastEMA[fastEMA.length - 1].value - slowEMA[slowEMA.length - 1].value;
 
-    const signalData = data.map((d, i) => ({
-      price: macd,
-      volume: d.volume,
-      timestamp: d.timestamp
-    }));
-
-    const signal = this.signalEMA.calculate(signalData)[0]?.value || 0;
+    const signal =
+      this.signalEMA.calculate(
+        data.map((d) => ({
+          price: macd,
+          volume: d.volume,
+          timestamp: d.timestamp,
+          high: d.high,
+          low: d.low,
+        }))
+      )[0]?.value || 0;
     const histogram = macd - signal;
 
     return { macd, signal, histogram };

@@ -1,11 +1,9 @@
-import { PriceData, VolatilityResult, IndicatorConfig } from './types.ts';
+import { PriceData, VolatilityResult, IndicatorConfig } from "./types.ts";
 
 export class Volatility {
-  private period: number;
   private highThreshold: number;
 
   constructor(config: IndicatorConfig) {
-    this.period = config.period || 14;
     this.highThreshold = config.multiplier || 2;
   }
 
@@ -17,14 +15,16 @@ export class Volatility {
       return percentChange;
     });
 
-    const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
-    const squaredDiffs = returns.map(value => Math.pow(value - mean, 2));
-    const variance = squaredDiffs.reduce((sum, value) => sum + value, 0) / returns.length;
+    const mean =
+      returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const squaredDiffs = returns.map((value) => Math.pow(value - mean, 2));
+    const variance =
+      squaredDiffs.reduce((sum, value) => sum + value, 0) / returns.length;
     const volatility = Math.sqrt(variance);
 
     return {
       value: volatility,
-      isHigh: volatility > this.highThreshold
+      isHigh: volatility > this.highThreshold,
     };
   }
 }

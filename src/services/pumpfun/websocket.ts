@@ -1,26 +1,7 @@
 import "jsr:@std/dotenv/load";
 import { StandardWebSocketClient } from "https://deno.land/x/websocket@v0.1.4/mod.ts";
 import { Logger } from "jsr:@deno-library/logger";
-
-type MessageBase = { message: string };
-type MessageNewToken = {
-  signature: string;
-  mint: string;
-  traderPublicKey: string;
-  txType: string;
-  initialBuy: number;
-  solAmount: number;
-  bondingCurveKey: string;
-  vTokensInBondingCurve: number;
-  vSolInBondingCurve: number;
-  marketCapSol: number;
-  name: string;
-  symbol: string;
-  uri: string;
-  pool: string;
-};
-
-type MessageType = MessageBase | MessageNewToken;
+import { MessageType } from "./types.ts";
 
 export class PumpFunWebSocket {
   private readonly logger = new Logger();
@@ -44,12 +25,7 @@ export class PumpFunWebSocket {
     });
 
     ws.addListener("message", (event: MessageEvent<string>) => {
-      this.logger.log("Received message event...");
-
-      if (this.messageHandler) {
-        const message = JSON.parse(event.data);
-        this.messageHandler(message);
-      }
+      if (this.messageHandler) this.messageHandler(JSON.parse(event.data));
     });
 
     this.socket = ws;
@@ -57,9 +33,10 @@ export class PumpFunWebSocket {
 
   // Subscribing to token creation events
   subscribeNewToken() {
-    const payload = {
-      method: "subscribeNewToken",
-    };
-    this.socket.send(JSON.stringify(payload));
+    this.socket.send(
+      JSON.stringify({
+        method: "subscribeNewToken",
+      })
+    );
   }
 }

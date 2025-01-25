@@ -1,5 +1,5 @@
 import axios from "axios";
-import { BirdEyeClient } from "../birdeye/BirdEyeClient.ts";
+import { BirdEyeClient } from "../birdeye/index.ts";
 import { requireRedis } from "../redis/index.ts";
 import { Logger } from "jsr:@deno-library/logger";
 import Big from "big.js";
