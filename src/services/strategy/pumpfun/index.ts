@@ -38,11 +38,14 @@ export class PumpFunStrategy implements Strategy {
 
     this.connection = new SolanaConnection(Deno.env.get("SOLANA_RPC_URL")!);
 
-    new PumpFunWebSocket((event) => {
+    const ws = new PumpFunWebSocket((event) => {
       if ("mint" in event) {
-        this.processNewToken.bind(this)(event.mint, event.signature);
+        // this.processNewToken.bind(this)(event.mint, event.signature);
       }
       this.logger.log(event);
+    });
+    ws.socket.on("open", () => {
+      ws.subscribeNewToken();
     });
 
     this.indicators = {
