@@ -1,27 +1,33 @@
-//src/transactions/BaseTransaction.ts
+// src/services/transaction/BaseTransaction.ts
 import { Connection, VersionedTransaction } from "@solana/web3.js";
 import { SolanaWallet } from "../solana/wallet.ts";
 import { Buffer } from "node:buffer";
 import { QuoteResponse, SerializedQuoteResponse } from "../../core/types/Tracker.ts";
 import axios from "axios";
 import { config } from "../../config.ts";
+import { HeliusApi } from "../helius/api.ts";
 
 export abstract class BaseTransaction {
     protected connection: Connection;
     protected wallet: SolanaWallet;
     protected quoteUrl: string;
     protected swapUrl: string;
+    protected helius: HeliusApi;
 
     constructor() {
-        const rpcUrl = process.env.HELIUS_HTTPS_URI || "";
-        this.quoteUrl = process.env.JUP_HTTPS_QUOTE_URI || "";
-        this.swapUrl = process.env.JUP_HTTPS_SWAP_URI || "";
+        const rpcUrl = Deno.env.get("SOLANA_RPC_URL") || "";
+        if (!rpcUrl.startsWith("http")) {
+            throw new Error("Invalid RPC URL format - must start with http:// or https://");
+        }
+        this.quoteUrl = Deno.env.get("JUP_HTTPS_QUOTE_URI") || "";
+        this.swapUrl = Deno.env.get("JUP_HTTPS_SWAP_URI") || "";
         this.connection = new Connection(rpcUrl);
-        const privateKey = process.env.PRIV_KEY_WALLET || "";
+        const privateKey = Deno.env.get("PRIV_KEY_WALLET") || "";
         this.wallet = new SolanaWallet(this.connection, privateKey);
+        this.helius = new HeliusApi();
     }
 
-    protected async getQuote(inputMint: string, outputMint: string, amount: string | number, slippageBps: number): Promise<QuoteResponse> {
+    protected async getQuote(inputMint: string, outputMint: string, amount: number, slippageBps: number): Promise<QuoteResponse> {
         const response = await axios.get<QuoteResponse>(this.quoteUrl, {
             params: { inputMint, outputMint, amount, slippageBps },
             timeout: config.tx.get_timeout
@@ -42,15 +48,15 @@ export abstract class BaseTransaction {
 
         const response = await axios.post<SerializedQuoteResponse>(
             this.swapUrl,
-            JSON.stringify({
+            {
                 quoteResponse,
-                userPublicKey: publicKey,
+                userPublicKey: publicKey.toString(),
                 wrapAndUnwrapSol: true,
                 dynamicSlippage: {
                     maxBps: 300,
                 },
                 prioritizationFeeLamports: priorityConfig
-            }),
+            },
             {
                 headers: { "Content-Type": "application/json" },
                 timeout: config.tx.get_timeout

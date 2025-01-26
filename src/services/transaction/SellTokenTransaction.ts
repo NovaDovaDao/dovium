@@ -1,4 +1,4 @@
-//src/transactions/SellTokenTransaction.ts
+// src/services/transaction/SellTokenTransaction.ts
 import { BaseTransaction } from "./BaseTransaction.ts";
 import { config } from "../../config.ts";
 import { createSellTransactionResponse } from "../../core/types/Tracker.ts";
@@ -8,8 +8,13 @@ import { removeHolding } from "../../services/db/DBTrackerService.ts";
 export class SellTokenTransaction extends BaseTransaction {
     async createSellTransaction(solMint: string, tokenMint: string, amount: string): Promise<createSellTransactionResponse> {
         try {
+            const publicKey = this.wallet.getPublicKey();
+            if (!publicKey) {
+                throw new Error("Wallet public key not available");
+            }
+            
             const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
-                this.wallet!.publicKey,
+                new PublicKey(publicKey),
                 { mint: new PublicKey(tokenMint) }
             );
 
@@ -30,8 +35,8 @@ export class SellTokenTransaction extends BaseTransaction {
             const quoteResponse = await this.getQuote(
                 tokenMint,
                 solMint,
-                amount,
-                config.sell.slippageBps
+                Number(amount),
+                Number(config.sell.slippageBps)
             );
 
             const priorityConfig = {

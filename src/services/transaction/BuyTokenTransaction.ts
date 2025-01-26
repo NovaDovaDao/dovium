@@ -1,8 +1,7 @@
-//src/transactions/BuyTokenTransaction.ts
+// src/services/transaction/BuyTokenTransaction.ts
 import { BaseTransaction } from "./BaseTransaction.ts";
 import { config } from "../../config.ts";
 import { MintsDataReponse } from "../../core/types/Tracker.ts";
-import axios from "axios";
 
 export class BuyTokenTransaction extends BaseTransaction {
     async createSwapTransaction(solMint: string, tokenMint: string): Promise<string | null> {
@@ -13,8 +12,8 @@ export class BuyTokenTransaction extends BaseTransaction {
                     const quoteResponse = await this.getQuote(
                         solMint,
                         tokenMint,
-                        config.swap.amount,
-                        config.swap.slippageBps
+                        Number(config.swap.amount),
+                        Number(config.swap.slippageBps)
                     );
 
                     const priorityConfig = {
@@ -43,21 +42,13 @@ export class BuyTokenTransaction extends BaseTransaction {
     }
 
     async fetchTransactionDetails(signature: string): Promise<MintsDataReponse | null> {
-        const txUrl = process.env.HELIUS_HTTPS_URI_TX || "";
         let retryCount = 0;
         
         await new Promise(resolve => setTimeout(resolve, config.tx.fetch_tx_initial_delay));
 
         while (retryCount < config.tx.fetch_tx_max_retries) {
             try {
-                const response = await axios.post(txUrl, {
-                    transactions: [signature],
-                    commitment: "finalized",
-                    encoding: "jsonParsed"
-                }, {
-                    headers: { "Content-Type": "application/json" },
-                    timeout: config.tx.get_timeout
-                });
+                const response = await this.helius.transactions([signature]);
 
                 if (!response.data?.[0]) throw new Error("No transaction data");
 

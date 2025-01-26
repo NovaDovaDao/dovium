@@ -1,10 +1,18 @@
-//src/transactions/TransactionService.ts
+// src/services/transaction/TransactionService.ts
+import { HeliusApi } from "../helius/api.ts";
 import axios from "axios";
 import { config } from "../../config.ts";
 import { HoldingRecord, NewTokenRecord, RugResponseExtended, SwapEventDetailsResponse, TransactionDetailsResponseArray } from "../../core/types/Tracker.ts";
 import { insertHolding, insertNewToken, selectTokenByMint, selectTokenByNameAndCreator } from "../../services/db/DBTrackerService.ts";
 
 export class TransactionService {
+    private readonly heliusApi: HeliusApi;
+    private readonly priceUrl: string;
+
+    constructor() {
+        this.heliusApi = new HeliusApi();
+        this.priceUrl = Deno.env.get("JUP_HTTPS_PRICE_URI") || "";
+    }
     async getRugCheckConfirmed(tokenMint: string): Promise<boolean> {
         const rugResponse = await axios.get<RugResponseExtended>(
             `https://api.rugcheck.xyz/v1/tokens/${tokenMint}/report`,
@@ -61,17 +69,8 @@ export class TransactionService {
     }
 
     async fetchAndSaveSwapDetails(tx: string): Promise<boolean> {
-        const txUrl = process.env.HELIUS_HTTPS_URI_TX || "";
-        const priceUrl = process.env.JUP_HTTPS_PRICE_URI || "";
-
         try {
-            const response = await axios.post<TransactionDetailsResponseArray>(txUrl, 
-                { transactions: [tx] },
-                {
-                    headers: { "Content-Type": "application/json" },
-                    timeout: 10000
-                }
-            );
+            const response = await this.heliusApi.transactions([tx]);
 
             if (!response.data?.[0]?.events?.swap?.innerSwaps[0]) {
                 console.log("⛔ Could not fetch swap details: Invalid response format");
@@ -79,7 +78,7 @@ export class TransactionService {
             }
 
             const swapDetails = this.extractSwapDetails(response.data[0]);
-            const priceData = await this.fetchSolPrice(priceUrl);
+            const priceData = await this.fetchSolPrice(this.priceUrl);
             
             if (!priceData) return false;
 
