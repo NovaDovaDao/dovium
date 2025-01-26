@@ -127,17 +127,6 @@ export class TrackerService {
     }
   }
 
-  async getAllHoldings(): Promise<HoldingRecord[]> {
-    if (!this.db) return [];
-
-    try {
-      return this.db.prepare('SELECT * FROM holdings').all() as HoldingRecord[];
-    } catch (error) {
-      this.logger.error("Failed to get holdings:", error);
-      return [];
-    }
-  }
-
   async findTokenByMint(mint: string): Promise<NewTokenRecord[]> {
     if (!this.db) return [];
 
@@ -169,3 +158,13 @@ export class TrackerService {
     }
   }
 }
+
+const trackerService = new TrackerService();
+await trackerService.init();
+
+export const insertHolding = (holding: HoldingRecord) => trackerService.insertHolding(holding);
+export const insertNewToken = (token: NewTokenRecord) => trackerService.insertNewToken(token);
+export const removeHolding = (tokenMint: string) => trackerService.removeHolding(tokenMint);
+export const selectTokenByMint = (mint: string) => trackerService.findTokenByMint(mint);
+export const selectTokenByNameAndCreator = (name: string, creator: string) => 
+  trackerService.findTokensByNameOrCreator(name, creator);

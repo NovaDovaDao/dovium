@@ -39,7 +39,7 @@ export const config = {
         volume_target: 1000,
         min_trade_size: 0.001,
         max_trade_size: 0.01,
-        trade_interval: 300000,
+        trade_interval: 5000,
         price_impact_limit: 1.0,
         spread_threshold: 0.5,
       }
