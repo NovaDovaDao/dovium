@@ -3,18 +3,13 @@ import { StandardWebSocketClient } from "https://deno.land/x/websocket@v0.1.4/mo
 import { LogNotification, WebSocketMessageData } from "./types.ts";
 import { Logger } from "jsr:@deno-library/logger";
 
-interface LogsSubscribeListener {
-  method: "logsSubscribe";
-  programId: string;
-  callback: (notification: LogNotification) => void;
-}
-
 export class HeliusWebSocketClient {
   logger = new Logger();
   socket: StandardWebSocketClient;
 
   constructor() {
-    const endpoint = Deno.env.get("SOLANA_WS_URL")!;
+    const endpoint =
+      "wss://mainnet.helius-rpc.com/?api-key=" + Deno.env.get("HELIUS_API_KEY");
     const ws = new StandardWebSocketClient(endpoint);
 
     ws.on("open", () => {

@@ -53,16 +53,13 @@ export class SolanaWallet {
     }
   }
 
-  async sendTransaction(transaction: Uint8Array): Promise<string> {
+  sendTransaction(transaction: Uint8Array): Promise<string> {
     try {
-      const sig = await this.connection.sendRawTransaction(transaction, {
+      return this.connection.sendRawTransaction(transaction, {
         skipPreflight: false, // If True, This will skip transaction simulation entirely.
         preflightCommitment: "confirmed",
         maxRetries: config.tx.fetch_tx_max_retries,
       });
-
-      await this.connection.confirmTransaction(sig);
-      return sig;
     } catch (error) {
       this.logger.error("Transaction send failed:", error);
       throw error;

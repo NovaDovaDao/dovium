@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
-import { config } from "../config.ts";
-import { JupiterApi } from "../services/dex/jupiter/api.ts";
-import { QuoteResponse } from "../services/dex/jupiter/types.ts";
-import { HeliusApi } from "../services/helius/api.ts";
+import { config } from "../../config.ts";
+import { JupiterApi } from "../dex/jupiter/api.ts";
+import { QuoteResponse } from "../dex/jupiter/types.ts";
+import { HeliusApi } from "../helius/api.ts";
 import {
   createSellTransactionResponse,
   HoldingRecord,
@@ -10,14 +10,16 @@ import {
   NewTokenRecord,
   SerializedQuoteResponse,
   SwapEventDetailsResponse,
-} from "./types/Tracker.ts";
+} from "../../core/types/Tracker.ts";
 import { LAMPORTS_PER_SOL, VersionedTransaction } from "@solana/web3.js";
-import { SolanaWallet } from "../services/solana/wallet.ts";
-import { RugCheckApi } from "../services/rugcheck/api.ts";
-import { TrackerService } from "../services/db/DBTrackerService.ts";
+import { SolanaWallet } from "../solana/wallet.ts";
+import { RugCheckApi } from "../rugcheck/api.ts";
+import { TrackerService } from "../db/DBTrackerService.ts";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
+import { Logger } from "jsr:@deno-library/logger";
 
-export class Transactions {
+export class TokenTransaction {
+  private readonly logger = new Logger();
   private readonly jupiterApi = new JupiterApi();
   private readonly heliusApi = new HeliusApi();
   private readonly rugCheckApi = new RugCheckApi();
@@ -33,7 +35,7 @@ export class Transactions {
     let retryCount = 0;
 
     // Add longer initial delay to allow transaction to be processed
-    console.log(
+    this.logger.log(
       "Waiting " +
         config.tx.fetch_tx_initial_delay / 1000 +
         " seconds for transaction to be confirmed..."
@@ -45,7 +47,7 @@ export class Transactions {
     while (retryCount < maxRetries) {
       try {
         // Output logs
-        console.log(
+        this.logger.log(
           `Attempt ${
             retryCount + 1
           } of ${maxRetries} to fetch transaction details...`
@@ -116,9 +118,9 @@ export class Transactions {
         }
 
         // Output logs
-        console.log("Successfully fetched transaction details!");
-        console.log(`SOL Token Account: ${solTokenAccount}`);
-        console.log(`New Token Account: ${newTokenAccount}`);
+        this.logger.log("Successfully fetched transaction details!");
+        this.logger.log(`SOL Token Account: ${solTokenAccount}`);
+        this.logger.log(`New Token Account: ${newTokenAccount}`);
 
         const displayData: MintsDataReponse = {
           tokenMint: newTokenAccount,
@@ -127,25 +129,28 @@ export class Transactions {
 
         return displayData;
       } catch (error) {
-        console.log(`Attempt ${retryCount + 1} failed:`, error);
+        this.logger.log(`Attempt ${retryCount + 1} failed:`, error);
 
         retryCount++;
 
         if (retryCount < maxRetries) {
           const delay = Math.min(4000 * Math.pow(1.5, retryCount), 15000);
-          console.log(`Waiting ${delay / 1000} seconds before next attempt...`);
+          this.logger.log(
+            `Waiting ${delay / 1000} seconds before next attempt...`
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
 
-    console.log("All attempts to fetch transaction details failed");
+    this.logger.log("All attempts to fetch transaction details failed");
     return null;
   }
 
   async createSwapTransaction(
     solMint: string,
-    tokenMint: string
+    tokenMint: string,
+    amount: string | null = null
   ): Promise<string | null> {
     let quoteResponseData: QuoteResponse | null = null;
     let serializedQuoteResponseData: SerializedQuoteResponse | null = null;
@@ -158,15 +163,15 @@ export class Transactions {
         const quoteResponse = await this.jupiterApi.getQuote({
           inputMint: solMint,
           outputMint: tokenMint,
-          amount: config.swap.amount,
+          amount: amount ?? config.swap.amount,
           slippageBps: config.swap.slippageBps,
         });
 
         if (!quoteResponse.data) return null;
 
         if (config.swap.verbose_log && config.swap.verbose_log === true) {
-          console.log("\nVerbose log:");
-          console.log(quoteResponse.data);
+          this.logger.log("\nVerbose log:");
+          this.logger.log(quoteResponse.data);
         }
 
         quoteResponseData = quoteResponse.data; // Store the successful response
@@ -188,31 +193,31 @@ export class Transactions {
         }
 
         // Throw error (null) when error is not TOKEN_NOT_TRADABLE
-        console.error(
+        this.logger.error(
           "Error while requesting a new swap quote:",
           error.message
         );
         if (config.swap.verbose_log && config.swap.verbose_log === true) {
-          console.log("Verbose Error Message:");
+          this.logger.log("Verbose Error Message:");
           if (error.response) {
             // Server responded with a status other than 2xx
-            console.error("Error Status:", error.response.status);
-            console.error("Error Status Text:", error.response.statusText);
-            console.error("Error Data:", error.response.data); // API error message
-            console.error("Error Headers:", error.response.headers);
+            this.logger.error("Error Status:", error.response.status);
+            this.logger.error("Error Status Text:", error.response.statusText);
+            this.logger.error("Error Data:", error.response.data); // API error message
+            this.logger.error("Error Headers:", error.response.headers);
           } else if (error.request) {
             // Request was made but no response was received
-            console.error("No Response:", error.request);
+            this.logger.error("No Response:", error.request);
           } else {
             // Other errors
-            console.error("Error Message:", error.message);
+            this.logger.error("Error Message:", error.message);
           }
         }
         return null;
       }
     }
 
-    if (quoteResponseData) console.log("✅ Swap quote recieved.");
+    if (quoteResponseData) this.logger.log("✅ Swap quote recieved.");
 
     // Serialize the quote into a swap transaction that can be submitted on chain
     try {
@@ -226,32 +231,33 @@ export class Transactions {
       if (!swapResponse.data) return null;
 
       if (config.swap.verbose_log && config.swap.verbose_log === true) {
-        console.log(swapResponse.data);
+        this.logger.log(swapResponse.data);
       }
 
       serializedQuoteResponseData = swapResponse.data; // Store the successful response
     } catch (error: any) {
-      console.error("Error while sending the swap quote:", error.message);
+      this.logger.error("Error while sending the swap quote:", error.message);
       if (config.swap.verbose_log && config.swap.verbose_log === true) {
-        console.log("Verbose Error Message:");
+        this.logger.log("Verbose Error Message:");
         if (error.response) {
           // Server responded with a status other than 2xx
-          console.error("Error Status:", error.response.status);
-          console.error("Error Status Text:", error.response.statusText);
-          console.error("Error Data:", error.response.data); // API error message
-          console.error("Error Headers:", error.response.headers);
+          this.logger.error("Error Status:", error.response.status);
+          this.logger.error("Error Status Text:", error.response.statusText);
+          this.logger.error("Error Data:", error.response.data); // API error message
+          this.logger.error("Error Headers:", error.response.headers);
         } else if (error.request) {
           // Request was made but no response was received
-          console.error("No Response:", error.request);
+          this.logger.error("No Response:", error.request);
         } else {
           // Other errors
-          console.error("Error Message:", error.message);
+          this.logger.error("Error Message:", error.message);
         }
       }
       return null;
     }
 
-    if (serializedQuoteResponseData) console.log("✅ Swap quote serialized.");
+    if (serializedQuoteResponseData)
+      this.logger.log("✅ Swap quote serialized.");
 
     // deserialize, sign and send the transaction
     try {
@@ -274,11 +280,11 @@ export class Transactions {
 
       // Return null when no tx was returned
       if (!txid) {
-        console.log("🚫 No id received for sent raw transaction.");
+        this.logger.log("🚫 No id received for sent raw transaction.");
         return null;
       }
 
-      if (txid) console.log("✅ Raw transaction id received.");
+      if (txid) this.logger.log("✅ Raw transaction id received.");
 
       // Fetch the current status of a transaction signature (processed, confirmed, finalized).
       const conf = await this.wallet.connection.confirmTransaction({
@@ -287,34 +293,34 @@ export class Transactions {
         signature: txid,
       });
 
-      if (txid) console.log("🔎 Checking transaction confirmation ...");
+      if (txid) this.logger.log("🔎 Checking transaction confirmation ...");
 
       // Return null when an error occured when confirming the transaction
       if (conf.value.err || conf.value.err !== null) {
-        console.log("🚫 Transaction confirmation failed.");
+        this.logger.log("🚫 Transaction confirmation failed.");
         return null;
       }
 
       return txid;
     } catch (error: any) {
-      console.error(
+      this.logger.error(
         "Error while signing and sending the transaction:",
         error.message
       );
       if (config.swap.verbose_log && config.swap.verbose_log === true) {
-        console.log("Verbose Error Message:");
+        this.logger.log("Verbose Error Message:");
         if (error.response) {
           // Server responded with a status other than 2xx
-          console.error("Error Status:", error.response.status);
-          console.error("Error Status Text:", error.response.statusText);
-          console.error("Error Data:", error.response.data); // API error message
-          console.error("Error Headers:", error.response.headers);
+          this.logger.error("Error Status:", error.response.status);
+          this.logger.error("Error Status Text:", error.response.statusText);
+          this.logger.error("Error Data:", error.response.data); // API error message
+          this.logger.error("Error Headers:", error.response.headers);
         } else if (error.request) {
           // Request was made but no response was received
-          console.error("No Response:", error.request);
+          this.logger.error("No Response:", error.request);
         } else {
           // Other errors
-          console.error("Error Message:", error.message);
+          this.logger.error("Error Message:", error.message);
         }
       }
       return null;
@@ -327,7 +333,7 @@ export class Transactions {
     if (!rugResponse.data) return false;
 
     if (config.rug_check.verbose_log && config.rug_check.verbose_log === true) {
-      console.log(rugResponse.data);
+      this.logger.log(rugResponse.data);
     }
 
     // Extract information
@@ -467,14 +473,14 @@ export class Transactions {
           config.rug_check.block_returning_token_names &&
           duplicate.some((token) => token.name === tokenName)
         ) {
-          console.log("🚫 Token with this name was already created");
+          this.logger.log("🚫 Token with this name was already created");
           return false;
         }
         if (
           config.rug_check.block_returning_token_creators &&
           duplicate.some((token) => token.creator === tokenCreator)
         ) {
-          console.log("🚫 Token from this creator was already created");
+          this.logger.log("🚫 Token from this creator was already created");
           return false;
         }
       }
@@ -492,7 +498,7 @@ export class Transactions {
         config.rug_check.block_returning_token_names ||
         config.rug_check.block_returning_token_creators
       ) {
-        console.log(
+        this.logger.log(
           "⛔ Unable to store new token for tracking duplicate tokens: " + err
         );
       }
@@ -501,7 +507,7 @@ export class Transactions {
     //Validate conditions
     for (const condition of conditions) {
       if (condition.check) {
-        console.log(condition.message);
+        this.logger.log(condition.message);
         return false;
       }
     }
@@ -515,7 +521,7 @@ export class Transactions {
 
       // Verify if we received tx reponse data
       if (!response.data || response.data.length === 0) {
-        console.log(
+        this.logger.log(
           "⛔ Could not fetch swap details: No response received from API."
         );
         return false;
@@ -579,13 +585,13 @@ export class Transactions {
       };
 
       await this.db.insertHolding(newHolding).catch((err) => {
-        console.log("⛔ Database Error: " + err);
+        this.logger.log("⛔ Database Error: " + err);
         return false;
       });
 
       return true;
     } catch (error) {
-      console.error("Error during request:", error);
+      this.logger.error("Error during request:", error);
       return false;
     }
   }
@@ -608,7 +614,7 @@ export class Transactions {
       // Verify returned balance
       if (totalBalance <= 0n) {
         await this.db.removeHolding(tokenMint).catch((err) => {
-          console.log("⛔ Database Error: " + err);
+          this.logger.log("⛔ Database Error: " + err);
         });
         throw new Error(
           `Token has 0 balance - Already sold elsewhere. Removing from tracking.`
@@ -688,7 +694,7 @@ export class Transactions {
 
       // Delete holding
       await this.db.removeHolding(tokenMint).catch((err) => {
-        console.log("⛔ Database Error: " + err);
+        this.logger.log("⛔ Database Error: " + err);
       });
 
       return {

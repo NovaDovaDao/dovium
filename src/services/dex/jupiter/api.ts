@@ -43,7 +43,7 @@ export class JupiterApi {
   }) {
     const amountLamports = new BigDenary(amount).multipliedBy(LAMPORTS_PER_SOL);
 
-    return this.apiClient.get<QuoteResponse>("/quote", {
+    return this.apiClient.get<QuoteResponse>("/swap/v1/quote", {
       params: {
         inputMint,
         outputMint,
@@ -66,7 +66,7 @@ export class JupiterApi {
     wrapAndUnwrapSol?: boolean;
   }) {
     return this.apiClient.post<SerializedQuoteResponse>(
-      "/v6/swap",
+      "/swap/v1/swap",
       {
         // quoteResponse from /quote api
         quoteResponse,

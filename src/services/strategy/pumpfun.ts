@@ -1,27 +1,24 @@
-// src/services/strategies/PumpFunStrategy.ts
-
-import axios from "axios";
-import { Strategy, StrategyState } from "../types.ts";
-import { MACD } from "../../indicators/MACD.ts";
-import { MarketDepth } from "../../indicators/MarketDepth.ts";
-import { MovingAverage } from "../../indicators/MovingAverage.ts";
-import { RSI } from "../../indicators/RSI.ts";
-import { PriceData } from "../../indicators/types.ts";
-import { VolumeProfile } from "../../indicators/VolumeProfile.ts";
-import { config } from "../../../config.ts";
-import { PumpFunWebSocket } from "../../pumpfun/websocket.ts";
+import { Strategy, StrategyState } from "./types.ts";
+import { MACD } from "../indicators/MACD.ts";
+import { MarketDepth } from "../indicators/MarketDepth.ts";
+import { MovingAverage } from "../indicators/MovingAverage.ts";
+import { RSI } from "../indicators/RSI.ts";
+import { PriceData } from "../indicators/types.ts";
+import { VolumeProfile } from "../indicators/VolumeProfile.ts";
+import { config } from "../../config.ts";
+import { PumpFunWebSocket } from "../pumpfun/websocket.ts";
 import { Logger } from "jsr:@deno-library/logger";
-import { SolanaWallet } from "../../solana/wallet.ts";
-import { Transactions } from "../../../core/transactions.ts";
-import { JupiterApi } from "../../dex/jupiter/api.ts";
-import { HeliusApi } from "../../helius/api.ts";
+import { SolanaWallet } from "../solana/wallet.ts";
+import { JupiterApi } from "../dex/jupiter/api.ts";
+import { HeliusApi } from "../helius/api.ts";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
+import { TokenTransaction } from "../utils/transactions.ts";
 
 export class PumpFunStrategy implements Strategy {
   private logger = new Logger();
   private readonly heliusApi = new HeliusApi();
   private readonly jupiterApi = new JupiterApi();
-  private transactionService: Transactions;
+  private tokenTransaction: TokenTransaction;
   private state: StrategyState;
   private monitoringInterval: number | null = null;
   private lastPriceCheck = 0;
@@ -41,7 +38,7 @@ export class PumpFunStrategy implements Strategy {
       walletBalance: 0,
     };
 
-    this.transactionService = new Transactions(wallet);
+    this.tokenTransaction = new TokenTransaction(wallet);
 
     const pumpFunWebSocket = new PumpFunWebSocket((event) => {
       if ("mint" in event) {
@@ -154,8 +151,9 @@ export class PumpFunStrategy implements Strategy {
         return;
       }
 
-      const isRugCheckPassed =
-        await this.transactionService.getRugCheckConfirmed(tokenMint);
+      const isRugCheckPassed = await this.tokenTransaction.getRugCheckConfirmed(
+        tokenMint
+      );
       if (!isRugCheckPassed) {
         this.logger.log("🚫 Rug Check failed!");
         return;
@@ -191,7 +189,7 @@ export class PumpFunStrategy implements Strategy {
         return;
       }
 
-      const tx = await this.transactionService.createSwapTransaction(
+      const tx = await this.tokenTransaction.createSwapTransaction(
         config.liquidity_pool.wsol_pc_mint,
         tokenMint
       );
@@ -204,7 +202,7 @@ export class PumpFunStrategy implements Strategy {
       this.logger.log(`https://solscan.io/tx/${tx}`);
 
       const saveConfirmation =
-        await this.transactionService.fetchAndSaveSwapDetails(tx);
+        await this.tokenTransaction.fetchAndSaveSwapDetails(tx);
       if (!saveConfirmation) {
         this.logger.log("❌ Failed to save trade details");
         return;
@@ -275,7 +273,7 @@ export class PumpFunStrategy implements Strategy {
     if (!position) return;
 
     try {
-      const response = await this.transactionService.createSellTransaction(
+      const response = await this.tokenTransaction.createSellTransaction(
         config.liquidity_pool.wsol_pc_mint,
         tokenMint,
         position.toString()
@@ -352,7 +350,7 @@ export class PumpFunStrategy implements Strategy {
 
     for (const [token, position] of this.state.activePositions) {
       try {
-        const response = await this.transactionService.createSellTransaction(
+        const response = await this.tokenTransaction.createSellTransaction(
           config.liquidity_pool.wsol_pc_mint,
           token,
           position.toString()
@@ -380,21 +378,11 @@ export class PumpFunStrategy implements Strategy {
     }
   }
 
+  // FIXME: response looks bad
   private async fetchPriceData(tokenMint: string): Promise<PriceData[]> {
     try {
-      const jupiterPriceUrl = process.env.JUP_HTTPS_PRICE_URI;
-      if (!jupiterPriceUrl) {
-        throw new Error("Jupiter API URL not configured");
-      }
-
       const solMint = config.liquidity_pool.wsol_pc_mint;
-      const response = await axios.get(jupiterPriceUrl, {
-        params: {
-          ids: `${tokenMint},${solMint}`,
-          showExtraInfo: true,
-        },
-        timeout: config.tx.get_timeout,
-      });
+      const response = await this.jupiterApi.getPrice([tokenMint, solMint]);
 
       if (!response.data?.data) {
         throw new Error("Invalid price data response");
@@ -408,14 +396,14 @@ export class PumpFunStrategy implements Strategy {
       return [
         {
           timestamp: Date.now(),
-          price: tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
-          volume: tokenData.extraInfo.oneDayVolume || 0,
+          price: +tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
+          volume: 0,
           high:
-            tokenData.extraInfo.high24h ||
-            tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
+            // tokenData.extraInfo.high24h ||
+            +tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
           low:
-            tokenData.extraInfo.low24h ||
-            tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
+            // tokenData.extraInfo.low24h ||
+            +tokenData.extraInfo.lastSwappedPrice.lastJupiterSellPrice,
         },
       ];
     } catch (error) {

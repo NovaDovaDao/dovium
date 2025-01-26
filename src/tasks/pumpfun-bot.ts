@@ -1,5 +1,5 @@
 import { Connection } from "@solana/web3.js";
-import { PumpFunStrategy } from "../services/strategy/pumpfun/index.ts";
+import { PumpFunStrategy } from "../services/strategy/pumpfun.ts";
 import { SolanaWallet } from "../services/solana/wallet.ts";
 
 function main() {

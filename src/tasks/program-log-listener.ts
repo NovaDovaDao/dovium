@@ -1,12 +1,8 @@
+import { config } from "../config.ts";
 import { HeliusWebSocketClient } from "../services/helius/websocket.ts";
 
 function main() {
-  let programId: string | undefined | null = Deno.env.get("TOKEN_PAIR_QUOTE");
-
-  // If there isn't any name or color, then prompt.
-  if (!programId) {
-    programId = prompt("What program (id) do you want to listen to?");
-  }
+  const programId = config.volume_strategy.pairs[0].quote;
 
   if (!programId) throw new Error("Program ID is required");
 
