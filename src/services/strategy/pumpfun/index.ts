@@ -1,6 +1,5 @@
 // src/services/strategies/PumpFunStrategy.ts
 
-import { Keypair } from "@solana/web3.js";
 import axios from "axios";
 import { Strategy, StrategyState } from "../types.ts";
 import { MACD } from "../../indicators/MACD.ts";
@@ -12,12 +11,18 @@ import { VolumeProfile } from "../../indicators/VolumeProfile.ts";
 import { config } from "../../../config.ts";
 import { PumpFunWebSocket } from "../../pumpfun/websocket.ts";
 import { Logger } from "jsr:@deno-library/logger";
-import SolanaConnection from "../../solana/connection.ts";
+import { SolanaWallet } from "../../solana/wallet.ts";
+import { Transactions } from "../../../core/transactions.ts";
+import { JupiterApi } from "../../dex/jupiter/api.ts";
+import { HeliusApi } from "../../helius/api.ts";
+import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 
 export class PumpFunStrategy implements Strategy {
   private logger = new Logger();
+  private readonly heliusApi = new HeliusApi();
+  private readonly jupiterApi = new JupiterApi();
+  private transactionService: Transactions;
   private state: StrategyState;
-  private connection: SolanaConnection;
   private monitoringInterval: number | null = null;
   private lastPriceCheck = 0;
 
@@ -29,23 +34,24 @@ export class PumpFunStrategy implements Strategy {
     volume: VolumeProfile;
   };
 
-  constructor(private readonly wallet: Keypair) {
+  constructor(private readonly wallet: SolanaWallet) {
     this.state = {
       lastSignal: null,
       activePositions: new Map(),
       walletBalance: 0,
     };
 
-    this.connection = new SolanaConnection(Deno.env.get("SOLANA_RPC_URL")!);
+    this.transactionService = new Transactions(wallet);
 
-    const ws = new PumpFunWebSocket((event) => {
+    const pumpFunWebSocket = new PumpFunWebSocket((event) => {
       if ("mint" in event) {
-        // this.processNewToken.bind(this)(event.mint, event.signature);
+        this.processNewToken.bind(this)(event.mint, event.signature);
       }
       this.logger.log(event);
     });
-    ws.socket.on("open", () => {
-      ws.subscribeNewToken();
+
+    pumpFunWebSocket.socket.on("open", () => {
+      pumpFunWebSocket.subscribeNewToken();
     });
 
     this.indicators = {
@@ -103,16 +109,14 @@ export class PumpFunStrategy implements Strategy {
   }
 
   private async updatePositions(): Promise<void> {
-    const balance = await this.connection.getBalanceFromPublicKey(
-      this.wallet.publicKey.toString()
-    );
+    const balance = await this.wallet.getSolBalance();
     this.logger.log(`\n💰 Current SOL Balance: ${balance} SOL`);
 
     if (this.state.activePositions.size > 0) {
       this.logger.log("\n📈 Current Positions:");
       for (const [tokenMint, amount] of this.state.activePositions) {
         const currentPrice = await this.getCurrentPrice(tokenMint);
-        if (currentPrice > 0) {
+        if (currentPrice.greaterThan(0)) {
           this.logger.log(
             `${tokenMint}: ${amount} tokens @ ${currentPrice.toFixed(6)} SOL`
           );
@@ -132,7 +136,7 @@ export class PumpFunStrategy implements Strategy {
 
     try {
       const data = await Promise.race([
-        fetchTransactionDetails(signature),
+        this.heliusApi.transactions([signature]),
         new Promise((_, reject) =>
           setTimeout(
             () => reject(new Error("Transaction fetch timeout")),
@@ -150,7 +154,8 @@ export class PumpFunStrategy implements Strategy {
         return;
       }
 
-      const isRugCheckPassed = await getRugCheckConfirmed(tokenMint);
+      const isRugCheckPassed =
+        await this.transactionService.getRugCheckConfirmed(tokenMint);
       if (!isRugCheckPassed) {
         this.logger.log("🚫 Rug Check failed!");
         return;
@@ -186,7 +191,7 @@ export class PumpFunStrategy implements Strategy {
         return;
       }
 
-      const tx = await createSwapTransaction(
+      const tx = await this.transactionService.createSwapTransaction(
         config.liquidity_pool.wsol_pc_mint,
         tokenMint
       );
@@ -198,7 +203,8 @@ export class PumpFunStrategy implements Strategy {
       this.logger.log("🚀 Executing swap:");
       this.logger.log(`https://solscan.io/tx/${tx}`);
 
-      const saveConfirmation = await fetchAndSaveSwapDetails(tx);
+      const saveConfirmation =
+        await this.transactionService.fetchAndSaveSwapDetails(tx);
       if (!saveConfirmation) {
         this.logger.log("❌ Failed to save trade details");
         return;
@@ -213,7 +219,7 @@ export class PumpFunStrategy implements Strategy {
     }
   }
 
-  private async monitorPosition(tokenMint: string): Promise<void> {
+  private monitorPosition(tokenMint: string) {
     const checkPosition = async () => {
       try {
         const priceData = await this.fetchPriceData(tokenMint);
@@ -237,7 +243,7 @@ export class PumpFunStrategy implements Strategy {
     checkPosition();
   }
 
-  private async checkSellSignals(priceData: PriceData[]): Promise<boolean> {
+  private checkSellSignals(priceData: PriceData[]): boolean {
     const rsiResult = this.indicators.rsi.calculate(priceData);
     const macdResult = this.indicators.macd.calculate(priceData);
     const volumeResult = this.indicators.volume.calculate(priceData);
@@ -269,7 +275,7 @@ export class PumpFunStrategy implements Strategy {
     if (!position) return;
 
     try {
-      const response = await createSellTransaction(
+      const response = await this.transactionService.createSellTransaction(
         config.liquidity_pool.wsol_pc_mint,
         tokenMint,
         position.toString()
@@ -278,7 +284,7 @@ export class PumpFunStrategy implements Strategy {
       if (response.success) {
         const exitPrice = await this.getCurrentPrice(tokenMint);
         this.logger.log(`\n✅ Sold position for ${tokenMint}`);
-        this.logger.log(`Exit price: ${exitPrice.toFixed(6)} SOL`);
+        this.logger.log(`Exit price: ${exitPrice} SOL`);
         this.state.activePositions.delete(tokenMint);
       } else {
         this.logger.error(`❌ Sell failed for ${tokenMint}:`, response.msg);
@@ -320,8 +326,8 @@ export class PumpFunStrategy implements Strategy {
 
   private async checkWalletBalance(): Promise<boolean> {
     try {
-      const balance = await this.connection.getBalance(this.wallet.publicKey);
-      this.state.walletBalance = balance / 1e9;
+      const balance = await this.wallet.getSolBalance();
+      this.state.walletBalance = balance!.dividedBy(1e9).valueOf();
 
       const sufficientBalance =
         this.state.walletBalance >=
@@ -346,7 +352,7 @@ export class PumpFunStrategy implements Strategy {
 
     for (const [token, position] of this.state.activePositions) {
       try {
-        const response = await createSellTransaction(
+        const response = await this.transactionService.createSellTransaction(
           config.liquidity_pool.wsol_pc_mint,
           token,
           position.toString()
@@ -362,18 +368,15 @@ export class PumpFunStrategy implements Strategy {
     }
   }
 
-  private async getCurrentPrice(tokenMint: string): Promise<number> {
+  private async getCurrentPrice(tokenMint: string): Promise<BigDenary> {
     try {
-      const response = await axios.get(process.env.JUP_HTTPS_PRICE_URI!, {
-        params: {
-          ids: tokenMint,
-          showExtraInfo: true,
-        },
-      });
-      return response.data?.data[tokenMint]?.price || 0;
+      const response = await this.jupiterApi.getPrice(tokenMint);
+      return (
+        new BigDenary(response.data.data[tokenMint]?.price) || new BigDenary(0)
+      );
     } catch (error) {
       this.logger.error(`Error fetching price for ${tokenMint}:`, error);
-      return 0;
+      return new BigDenary(0);
     }
   }
 
@@ -435,11 +438,6 @@ export class PumpFunStrategy implements Strategy {
 
   cleanup(): void {
     this.logger.log("\n🧹 Cleaning up PumpFun strategy...");
-
-    if (this.eventId !== null) {
-      this.pumpFun.removeEventListener(this.eventId);
-      this.eventId = null;
-    }
 
     if (this.monitoringInterval !== null) {
       clearInterval(this.monitoringInterval);

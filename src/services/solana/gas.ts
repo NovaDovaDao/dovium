@@ -1,14 +1,23 @@
-import { Connection } from "@solana/web3.js";
-import { GasSpeed } from "../../core/types/Trading.ts";
+import { Connection, Keypair } from "@solana/web3.js";
+//   import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
+import { Logger } from "jsr:@deno-library/logger";
 
-export class GasService {
+type GasSpeed = "fast" | "turbo" | "ultra";
+
+// FIXME: improve math with big denary
+export class SolanaGasService {
+  private logger = new Logger();
+  wallet: Keypair | null = null;
+
+  constructor(private readonly connection: Connection) {
+    this.logger.log("Initialized Solana Gas Service");
+  }
+
   private readonly GAS_MULTIPLIERS = {
     fast: 1.2,
     turbo: 1.5,
     ultra: 2.0,
   };
-
-  constructor(private connection: Connection) {}
 
   async getGasFee(gasSpeed: GasSpeed): Promise<number> {
     const baseFee = await this.getBaseFee();
@@ -41,6 +50,7 @@ export class GasService {
       // Return the higher of median fee or minimum rent
       return Math.max(medianFee, minRent);
     } catch (error) {
+      this.logger.error("Error getting base fees", error);
       // Fallback to minimum lamports per signature if fee fetch fails
       return 5000; // Default minimum fee in lamports
     }

@@ -1,6 +1,6 @@
-import { Keypair } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
 import { PumpFunStrategy } from "../services/strategy/pumpfun/index.ts";
-import bs58 from "bs58";
+import { SolanaWallet } from "../services/solana/wallet.ts";
 
 function main() {
   try {
@@ -9,13 +9,15 @@ function main() {
       throw new Error("SOLANA_PRIVATE_KEY not found in environment variables");
     }
 
-    const keypair = Keypair.fromSecretKey(bs58.decode(privKey));
+    const rpcUrl = Deno.env.get("SOLANA_RPC_URL");
+    const connection = new Connection(rpcUrl!);
+    const wallet = new SolanaWallet(connection, privKey);
 
     console.clear();
     console.log("🚀 Starting PumpFun Bot...");
-    console.log(`💳 Wallet: ${keypair.publicKey.toString()}`);
+    console.log(`💳 Wallet: ${wallet.getPublicKey()}`);
 
-    const strategy = new PumpFunStrategy(keypair);
+    const strategy = new PumpFunStrategy(wallet);
     strategy.start();
   } catch (error) {
     console.error(error);
