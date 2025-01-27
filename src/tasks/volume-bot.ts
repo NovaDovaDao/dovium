@@ -6,12 +6,14 @@ import { VolumeStrategy } from "../services/strategy/volume.ts";
 
 function main() {
   try {
+    const rpcUrl = Deno.env.get("SOLANA_RPC_URL");
     const privKey = Deno.env.get("SOLANA_PRIVATE_KEY");
-    if (!privKey) {
-      throw new Error("SOLANA_PRIVATE_KEY not found in environment variables");
+    if (!privKey || !rpcUrl) {
+      throw new Error(
+        "SOLANA_PRIVATE_KEY and/or SOLANA_RPC_URL not found in environment variables"
+      );
     }
 
-    const rpcUrl = Deno.env.get("SOLANA_RPC_URL");
     const connection = new Connection(rpcUrl!);
     const wallet = new SolanaWallet(connection, privKey);
 
