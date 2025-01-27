@@ -1,45 +1,50 @@
+// src/services/transaction/BaseTransaction.ts
+
 import { Buffer } from "node:buffer";
+import { VersionedTransaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
+import { Logger } from "jsr:@deno-library/logger";
+
 import { config } from "../../config.ts";
 import { JupiterApi } from "../dex/jupiter/api.ts";
 import { QuoteResponse } from "../dex/jupiter/types.ts";
 import { HeliusApi } from "../helius/api.ts";
-import {
-  SerializedQuoteResponse,
-  SwapEventDetailsResponse,
-} from "../../core/types/Tracker.ts";
-import { VersionedTransaction } from "@solana/web3.js";
-import { SolanaWallet } from "../solana/wallet.ts";
 import { RugCheckApi } from "../rugcheck/api.ts";
 import { TrackerService } from "../db/DBTrackerService.ts";
-import { Logger } from "jsr:@deno-library/logger";
+import { SolanaWallet } from "../solana/wallet.ts";
 
-export class BaseTransaction {
-  private readonly logger = new Logger();
-  private readonly jupiterApi = new JupiterApi();
-  private readonly heliusApi = new HeliusApi();
-  private readonly rugCheckApi = new RugCheckApi();
-  private readonly db = new TrackerService();
+import {
+  SerializedQuoteResponse,
+  HoldingRecord,
+  SwapEventDetailsResponse
+} from "../../core/types/Tracker.ts";
 
-  constructor(private readonly wallet: SolanaWallet) {}
+interface TransactionExecutionResult {
+  success: boolean;
+  signature?: string;
+  error?: string;
+}
 
-  protected checkWallet() {
-    if (!this.wallet) {
-      throw new Error("Wallet not initialized. Call setWallet() first.");
-    }
-    return this.wallet;
-  }
+export abstract class BaseTransaction {
+  protected readonly logger = new Logger();
+  protected readonly jupiterApi = new JupiterApi();
+  protected readonly heliusApi = new HeliusApi();
+  protected readonly rugCheckApi = new RugCheckApi();
+  protected readonly db = new TrackerService();
 
-  async getQuote(
+  constructor(protected readonly wallet: SolanaWallet) {}
+
+  protected async getQuote(
     inputMint: string,
     outputMint: string,
-    amount: string | null = null,
-    slippageBps: number = config.swap.slippageBps
+    amount: string = config.swap.amount,
+    slippageBps: string = config.swap.slippageBps
   ): Promise<QuoteResponse | null> {
     try {
       const response = await this.jupiterApi.getQuote({
         inputMint,
         outputMint,
-        amount: amount ?? config.swap.amount,
+        amount,
         slippageBps,
       });
 
@@ -55,7 +60,7 @@ export class BaseTransaction {
     }
   }
 
-  async serializeTransaction(
+  protected async serializeTransaction(
     quoteResponse: QuoteResponse,
     priorityConfig: any = null
   ): Promise<SerializedQuoteResponse | null> {
@@ -67,11 +72,8 @@ export class BaseTransaction {
 
       const response = await this.jupiterApi.swapTransaction({
         quoteResponse,
-        userPublicKey: publicKey.toString(),
-        dynamicSlippage: {
-          maxBps: config.tx.max_slippage_bps || 300,
-        },
-        prioritizationFeeLamports: priorityConfig
+        userPublicKey: publicKey,
+        wrapAndUnwrapSol: true
       });
 
       if (!response.data) {
@@ -86,17 +88,19 @@ export class BaseTransaction {
     }
   }
 
-  async executeTransaction(serializedTx: SerializedQuoteResponse): Promise<string | null> {
+  protected async executeTransaction(
+    serializedTx: SerializedQuoteResponse
+  ): Promise<string | null> {
     try {
-      const transactionBuffer = Buffer.from(serializedTx.swapTransaction, "base64");
-      const transaction = VersionedTransaction.deserialize(transactionBuffer);
+      const txBuffer = Buffer.from(serializedTx.swapTransaction, "base64");
+      const transaction = VersionedTransaction.deserialize(txBuffer);
       
       transaction.sign([this.wallet.getSigner()]);
       
       const rawTransaction = transaction.serialize();
-      const txid = await this.wallet.sendTransaction(rawTransaction);
+      const signature = await this.wallet.sendTransaction(rawTransaction);
 
-      if (!txid) {
+      if (!signature) {
         throw new Error("Transaction failed to send");
       }
 
@@ -104,98 +108,91 @@ export class BaseTransaction {
       const confirmation = await this.wallet.connection.confirmTransaction({
         blockhash: latestBlockHash.blockhash,
         lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: txid
+        signature: signature
       });
 
       if (confirmation.value.err) {
         throw new Error("Transaction failed to confirm");
       }
 
-      this.logger.log(`✅ Transaction executed successfully: ${txid}`);
-      return txid;
+      this.logger.log(`✅ Transaction executed successfully: ${signature}`);
+      return signature;
     } catch (error) {
       this.logger.error("Error executing transaction:", error);
       return null;
     }
   }
-    async fetchAndSaveSwapDetails(tx: string): Promise<boolean> {
+
+  public async fetchAndSaveSwapDetails(tx: string): Promise<boolean> {
     try {
       const response = await this.heliusApi.transactions([tx]);
-
-      // Verify if we received tx reponse data
       if (!response.data || response.data.length === 0) {
-        this.logger.log(
-          "⛔ Could not fetch swap details: No response received from API."
-        );
-        return false;
+        throw new Error("No response received from API");
       }
 
-      // Safely access the event information
-      const transactions = response.data;
-      const swapTransactionData: SwapEventDetailsResponse = {
-        programInfo: transactions[0]?.events.swap.innerSwaps[0].programInfo,
-        tokenInputs: transactions[0]?.events.swap.innerSwaps[0].tokenInputs,
-        tokenOutputs: transactions[0]?.events.swap.innerSwaps[0].tokenOutputs,
-        fee: transactions[0]?.fee,
-        slot: transactions[0]?.slot,
-        timestamp: transactions[0]?.timestamp,
-        description: transactions[0]?.description,
-      };
-
-      // Get latest Sol Price
-      const solMint = config.liquidity_pool.wsol_pc_mint;
-      const priceResponse = await this.jupiterApi.getPrice(solMint);
-
-      // Verify if we received the price response data
-      if (!priceResponse.data.data[solMint]?.price) return false;
-
-      // Calculate estimated price paid in sol
-      const solUsdcPrice = priceResponse.data.data[solMint]?.price;
-      const solPaidUsdc = new BigDenary(
-        swapTransactionData.tokenInputs[0].tokenAmount
-      ).multipliedBy(solUsdcPrice);
-      const solFeePaidUsdc = new BigDenary(swapTransactionData.fee)
-        .dividedBy(LAMPORTS_PER_SOL)
-        .multipliedBy(solUsdcPrice);
-      const perTokenUsdcPrice = solPaidUsdc.dividedBy(
-        swapTransactionData.tokenOutputs[0].tokenAmount
-      );
-
-      // Get token meta data
-      let tokenName = "N/A";
-      const tokenData: NewTokenRecord[] = await this.db.findTokenByMint(
-        swapTransactionData.tokenOutputs[0].mint
-      );
-      if (tokenData) {
-        tokenName = tokenData[0].name;
-      }
-
-      // Add holding to db
-      const newHolding: HoldingRecord = {
-        Time: swapTransactionData.timestamp,
-        Token: swapTransactionData.tokenOutputs[0].mint,
-        TokenName: tokenName,
-        Balance: swapTransactionData.tokenOutputs[0].tokenAmount,
-        SolPaid: swapTransactionData.tokenInputs[0].tokenAmount,
-        SolFeePaid: swapTransactionData.fee,
-        SolPaidUSDC: solPaidUsdc.valueOf(),
-        SolFeePaidUSDC: solFeePaidUsdc.valueOf(),
-        PerTokenPaidUSDC: perTokenUsdcPrice.valueOf(),
-        Slot: swapTransactionData.slot,
-        Program: swapTransactionData.programInfo
-          ? swapTransactionData.programInfo.source
-          : "N/A",
-      };
-
-      await this.db.insertHolding(newHolding).catch((err) => {
-        this.logger.log("⛔ Database Error: " + err);
-        return false;
-      });
-
+      const swapTransactionData = this.extractSwapDetails(response.data[0]);
+      const solPrice = await this.getSolPrice();
+      const holdingRecord = await this.createHoldingRecord(swapTransactionData, solPrice);
+      
+      await this.db.insertHolding(holdingRecord);
       return true;
     } catch (error) {
-      this.logger.error("Error during request:", error);
+      this.logger.error("Error during swap details processing:", error);
       return false;
     }
+  }
+
+  private async getSolPrice(): Promise<number> {
+    const solMint = config.liquidity_pool.wsol_pc_mint;
+    const response = await this.jupiterApi.getPrice(solMint);
+    const priceStr = response.data.data[solMint]?.price;
+    return priceStr ? Number(priceStr) : 0;
+  }
+
+  private extractSwapDetails(transaction: any): SwapEventDetailsResponse {
+    return {
+      programInfo: transaction.events.swap.innerSwaps[0].programInfo,
+      tokenInputs: transaction.events.swap.innerSwaps[0].tokenInputs,
+      tokenOutputs: transaction.events.swap.innerSwaps[0].tokenOutputs,
+      fee: transaction.fee,
+      slot: transaction.slot,
+      timestamp: transaction.timestamp,
+      description: transaction.description
+    };
+  }
+
+  private async createHoldingRecord(
+    swapDetails: SwapEventDetailsResponse,
+    solPrice: number
+  ): Promise<HoldingRecord> {
+    const tokenName = await this.getTokenName(swapDetails.tokenOutputs[0].mint);
+    
+    const solPaidUsdc = new BigDenary(swapDetails.tokenInputs[0].tokenAmount)
+      .multipliedBy(solPrice);
+    const solFeePaidUsdc = new BigDenary(swapDetails.fee)
+      .dividedBy(LAMPORTS_PER_SOL)
+      .multipliedBy(solPrice);
+    const perTokenUsdcPrice = solPaidUsdc.dividedBy(
+      swapDetails.tokenOutputs[0].tokenAmount
+    );
+
+    return {
+      Time: swapDetails.timestamp,
+      Token: swapDetails.tokenOutputs[0].mint,
+      TokenName: tokenName,
+      Balance: swapDetails.tokenOutputs[0].tokenAmount,
+      SolPaid: swapDetails.tokenInputs[0].tokenAmount,
+      SolFeePaid: swapDetails.fee,
+      SolPaidUSDC: solPaidUsdc.valueOf(),
+      SolFeePaidUSDC: solFeePaidUsdc.valueOf(),
+      PerTokenPaidUSDC: perTokenUsdcPrice.valueOf(),
+      Slot: swapDetails.slot,
+      Program: swapDetails.programInfo?.source || "N/A"
+    };
+  }
+
+  private async getTokenName(tokenMint: string): Promise<string> {
+    const tokenData = await this.db.findTokenByMint(tokenMint);
+    return tokenData[0]?.name || "N/A";
   }
 }
