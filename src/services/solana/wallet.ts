@@ -1,9 +1,15 @@
-import { Connection, Keypair, LAMPORTS_PER_SOL, Signer } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  Signer,
+} from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import bs58 from "bs58";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 import { Logger } from "jsr:@deno-library/logger";
 import { config } from "../../config.ts";
-import { PublicKey } from "@solana/web3.js";
 
 export class SolanaWallet {
   private logger = new Logger();
@@ -78,10 +84,75 @@ export class SolanaWallet {
     return this.wallet!;
   }
 
-  getTokenBalance(tokenMint: string) {
-    return this.connection.getParsedTokenAccountsByOwner(
-      this.wallet?.publicKey!,
-      { mint: new PublicKey(tokenMint) }
-    );
+  async getTokenDecimals(mint: PublicKey): Promise<number> {
+    try {
+      const tokenInfo = await this.connection.getParsedAccountInfo(mint);
+
+      if (!tokenInfo.value?.data) {
+        throw new Error("Failed to fetch token info");
+      }
+
+      const accountData = tokenInfo.value.data;
+      if ("parsed" in accountData && accountData.parsed?.info?.decimals) {
+        return accountData.parsed.info.decimals;
+      }
+
+      // Default to 9 decimals if we can't determine
+      this.logger.warn(
+        `Could not determine decimals for ${mint.toString()}, defaulting to 9`
+      );
+      return 9;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching token decimals for ${mint.toString()}:`,
+        error
+      );
+      // Default to 9 decimals in case of error
+      return 9;
+    }
+  }
+  async getTokenBalance(mint: PublicKey | string): Promise<{ amount: bigint }> {
+    const mintPublicKey = typeof mint === "string" ? new PublicKey(mint) : mint;
+
+    try {
+      const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
+        this.wallet!.publicKey,
+        {
+          programId: TOKEN_PROGRAM_ID,
+          mint: mintPublicKey,
+        }
+      );
+
+      // Sum balances if multiple accounts exist
+      const totalBalance = tokenAccounts.value.reduce((acc, account) => {
+        if (!account.account.data.parsed?.info?.tokenAmount?.amount) {
+          return acc;
+        }
+        return (
+          acc + BigInt(account.account.data.parsed.info.tokenAmount.amount)
+        );
+      }, 0n);
+
+      return { amount: totalBalance };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching token balance for ${mintPublicKey.toString()}:`,
+        error
+      );
+      return { amount: 0n };
+    }
+  }
+
+  async validateTokenBalance(
+    tokenMint: string,
+    amount: bigint
+  ): Promise<boolean> {
+    try {
+      const { amount: balance } = await this.getTokenBalance(tokenMint);
+      return balance >= amount;
+    } catch (error) {
+      this.logger.error("Error validating token balance:", error);
+      return false;
+    }
   }
 }

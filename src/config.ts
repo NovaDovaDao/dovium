@@ -37,7 +37,7 @@ export const config = {
         base: "So11111111111111111111111111111111111111112", // SOL
         quote: "8HjiRvPNwFT9jpzAAsYF4rE9y576CKdTkQZXaxibpump", // DOVA
         volume_target: 1000,
-        min_trade_size: 0.001,
+        min_trade_size: 0.000369,
         max_trade_size: 0.01,
         trade_interval: 5000,
         price_impact_limit: 1.0,
