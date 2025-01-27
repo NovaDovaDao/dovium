@@ -111,12 +111,12 @@ export class VolumeStrategy {
 
       const trade = this.executeTrade(pair, tradeSize);
       // // Execute buy trade
-      // await trade("buy");
+      await trade("buy");
 
-      // // Add random delay between trades
-      // const delay = this.getRandomDelay(1000, 5000);
-      // this.logger.log(`⏳ Waiting ${delay}ms before sell trade...`);
-      // await this.sleep(delay);
+      // Add random delay between trades
+      const delay = this.getRandomDelay(1000, 5000);
+      this.logger.log(`⏳ Waiting ${delay}ms before sell trade...`);
+      await this.sleep(delay);
 
       // Execute sell trade if still running
       if (this.isRunning) {

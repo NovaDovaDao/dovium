@@ -5,7 +5,7 @@ import {
   PublicKey,
   Signer,
 } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getMint, getAccount } from "@solana/spl-token";
 import bs58 from "bs58";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 import { config } from "../../config.ts";
@@ -49,12 +49,9 @@ export class SolanaWallet {
       const balanceLamports = await this.connection.getBalance(
         this.wallet.publicKey
       );
-
-      // Use Big.js for accurate decimal representation
-      const balanceSOL = new BigDenary(balanceLamports).div(LAMPORTS_PER_SOL);
-      return balanceSOL;
+      return new BigDenary(balanceLamports).div(LAMPORTS_PER_SOL);
     } catch (error) {
-      this.logger.error("Error fetching balance", error);
+      this.logger.error("Error fetching SOL balance", error);
       throw new Error("Error fetching SOL balance.");
     }
   }
@@ -81,27 +78,16 @@ export class SolanaWallet {
   }
 
   getSigner(): Signer {
-    return this.wallet!;
+    if (!this.wallet) {
+      throw new Error("Wallet not initialized");
+    }
+    return this.wallet;
   }
 
   async getTokenDecimals(mint: PublicKey): Promise<number> {
     try {
-      const tokenInfo = await this.connection.getParsedAccountInfo(mint);
-
-      if (!tokenInfo.value?.data) {
-        throw new Error("Failed to fetch token info");
-      }
-
-      const accountData = tokenInfo.value.data;
-      if ("parsed" in accountData && accountData.parsed?.info?.decimals) {
-        return accountData.parsed.info.decimals;
-      }
-
-      // Default to 9 decimals if we can't determine
-      this.logger.warn(
-        `Could not determine decimals for ${mint.toString()}, defaulting to 9`
-      );
-      return 9;
+      const mintInfo = await getMint(this.connection, mint);
+      return mintInfo.decimals;
     } catch (error) {
       this.logger.error(
         `Error fetching token decimals for ${mint.toString()}:`,
@@ -114,43 +100,66 @@ export class SolanaWallet {
 
   async getTokenBalance(
     mint: PublicKey | string
-  ): Promise<{ amount: BigDenary }> {
+  ): Promise<{ amount: BigDenary; decimals: number }> {
+    if (!this.wallet) {
+      throw new Error("Wallet not initialized");
+    }
+
     const mintPublicKey = typeof mint === "string" ? new PublicKey(mint) : mint;
 
     try {
       const tokenAccounts = await this.connection.getParsedTokenAccountsByOwner(
-        this.wallet!.publicKey,
+        this.wallet.publicKey,
         {
           programId: TOKEN_PROGRAM_ID,
           mint: mintPublicKey,
         }
       );
 
-      // Sum balances if multiple accounts exist
-      const totalBalance = tokenAccounts.value.reduce((acc, account) => {
-        if (!account.account.data.parsed?.info?.tokenAmount?.amount) {
-          return acc;
-        }
-        return acc.plus(account.account.data.parsed.info.tokenAmount.amount);
-      }, new BigDenary(0));
+      let totalBalance = new BigDenary(0);
+      const decimals = await this.getTokenDecimals(mintPublicKey);
 
-      return { amount: totalBalance };
+      for (const account of tokenAccounts.value) {
+        const tokenAmount = account.account.data.parsed?.info?.tokenAmount;
+        if (tokenAmount?.amount) {
+          // Verify the account balance
+          const accountInfo = await getAccount(
+            this.connection, 
+            new PublicKey(account.pubkey)
+          );
+          
+          // Use the verified balance from the account info
+          totalBalance = totalBalance.plus(accountInfo.amount.toString());
+        }
+      }
+
+      return { 
+        amount: totalBalance,
+        decimals 
+      };
     } catch (error) {
       this.logger.error(
         `Error fetching token balance for ${mintPublicKey.toString()}:`,
         error
       );
-      return { amount: new BigDenary(0) };
+      return { 
+        amount: new BigDenary(0),
+        decimals: 0 
+      };
     }
   }
 
   async validateTokenBalance(
     tokenMint: string,
-    amount: string
+    requiredAmount: string
   ): Promise<boolean> {
     try {
-      const { amount: balance } = await this.getTokenBalance(tokenMint);
-      return balance.greaterThan(amount);
+      const { amount: balance, decimals } = await this.getTokenBalance(tokenMint);
+      const requiredBigDenary = new BigDenary(requiredAmount);
+
+      // Convert to same decimal places for comparison
+      const scaledBalance = balance.div(Math.pow(10, decimals));
+      return scaledBalance.greaterThanOrEqualTo(requiredBigDenary);
     } catch (error) {
       this.logger.error("Error validating token balance:", error);
       return false;

@@ -22,6 +22,7 @@ export class JupiterApi {
   }
 
   getPrice(tokenAddresses: string | string[]) {
+    this.logger.log("Jupiter Service");
     return this.apiClient.get<GetPriceResponse>("/price/v2", {
       params: {
         ids: Array.isArray(tokenAddresses)
@@ -44,6 +45,7 @@ export class JupiterApi {
     amount: string;
     slippageBps: string;
   }) {
+    this.logger.log("Jupiter Service");
     const amountLamports = new BigDenary(amount).multipliedBy(LAMPORTS_PER_SOL);
 
     return this.apiClient.get<QuoteResponse>("/swap/v1/quote", {
@@ -68,6 +70,7 @@ export class JupiterApi {
     userPublicKey: string;
     wrapAndUnwrapSol?: boolean;
   }) {
+    this.logger.log("Jupiter Service");
     return this.apiClient.post<SerializedQuoteResponse>(
       "/swap/v1/swap",
       {
