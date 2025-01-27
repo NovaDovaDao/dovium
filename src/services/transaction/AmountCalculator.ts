@@ -49,56 +49,20 @@ export class AmountCalculator {
     }
   }
 
-  async calculateSellAmount(
-    tokenMint: string,
+  calculateTokenAmount(
+    solAmount: string,
     tokenDecimals: number,
-    originalBuyAmount: string
-  ): Promise<{ rawAmount: BigDenary; formattedAmount: string }> {
+    latestTokenPrice: string
+  ): string {
     try {
-      // Get token accounts
-      const tokenAccounts =
-        await this.wallet.connection.getParsedTokenAccountsByOwner(
-          new PublicKey(this.wallet.getPublicKey()!),
-          {
-            programId: TOKEN_PROGRAM_ID,
-            mint: new PublicKey(tokenMint),
-          }
-        );
+      const result = new BigDenary(solAmount)
+        .multipliedBy(latestTokenPrice)
+        .multipliedBy(LAMPORTS_PER_SOL)
+        .toFixed(tokenDecimals);
 
-      // Calculate total balance with correct decimal places
-      const totalBalance = tokenAccounts.value.reduce((acc, account) => {
-        const tokenAmount = account.account.data.parsed.info.tokenAmount;
-        const scaledAmount = new BigDenary(tokenAmount.amount).dividedBy(
-          10 ** tokenDecimals
-        ); // Scale by decimals
-        return acc.plus(scaledAmount);
-      }, new BigDenary(0));
+      this.logger.log(`Selling ${result} tokens from `);
 
-      // Convert original buy amount to appropriate scale for comparison
-      const originalBuyScaled = new BigDenary(originalBuyAmount).div(
-        10 ** tokenDecimals
-      );
-
-      // Use either total balance or original buy amount (whichever is smaller)
-      const baseAmount = totalBalance.lt(originalBuyScaled)
-        ? totalBalance
-        : originalBuyScaled;
-
-      // Use 95% of amount to account for price impact and fees
-      const sellAmount = baseAmount.multipliedBy(95).div(100); // Use times() for multiplication
-
-      // Format the sell amount for display, keeping all decimals
-      const formattedAmount = sellAmount.toString();
-
-      this.logger.log(
-        `Selling ${formattedAmount} tokens from ` +
-          `total balance of ${totalBalance.toString()}`
-      );
-
-      return {
-        rawAmount: sellAmount,
-        formattedAmount,
-      };
+      return result;
     } catch (error) {
       this.logger.error("Error calculating sell amount:", error);
       throw error;

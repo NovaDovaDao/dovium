@@ -146,7 +146,7 @@ export class SolanaWallet {
 
   async validateTokenBalance(
     tokenMint: string,
-    amount: number
+    amount: string
   ): Promise<boolean> {
     try {
       const { amount: balance } = await this.getTokenBalance(tokenMint);

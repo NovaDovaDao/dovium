@@ -7,6 +7,7 @@ import { createSellTransactionResponse } from "../../core/types/Tracker.ts";
 import { AmountCalculator } from "./AmountCalculator.ts";
 import { SolanaWallet } from "../solana/wallet.ts";
 import { DoviumLogger } from "../../core/logger.ts";
+import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 
 export class SellTokenTransaction extends BaseTransaction {
   override logger = new DoviumLogger(SellTokenTransaction.name);
@@ -28,60 +29,44 @@ export class SellTokenTransaction extends BaseTransaction {
         new PublicKey(tokenMint)
       );
 
-      // Calculate sell amount using original buy amount
-      const { rawAmount, formattedAmount } =
-        await this.amountCalculator.calculateSellAmount(
-          tokenMint,
-          tokenDecimals,
-          originalBuyAmount
-        );
+      const tokenPriceData = await this.jupiterApi.getPrice(tokenMint);
+      const latestTokenPrice = tokenPriceData.data.data[tokenMint].price;
 
-      console.table([
-        tokenDecimals,
-        rawAmount,
-        formattedAmount,
+      // Calculate sell amount using original buy amount
+      const calculatedAmount = this.amountCalculator.calculateTokenAmount(
         originalBuyAmount,
-      ]);
+        tokenDecimals,
+        latestTokenPrice
+      );
+      this.logger.verbose("Calculated amount of tokens: ", calculatedAmount);
 
       // Validate the token balance before proceeding
       const hasBalance = await this.wallet.validateTokenBalance(
         tokenMint,
-        rawAmount.valueOf()
+        calculatedAmount
       );
       if (!hasBalance) {
         throw new Error(
           `Insufficient token balance for ${tokenMint}. ` +
-            `Required: ${formattedAmount}`
+            `Required: ${calculatedAmount}`
         );
       }
 
       // Get initial quote to estimate amount
       const quoteResponse = await this.getQuote(
-        solMint,
         tokenMint,
-        rawAmount.toString(),
+        solMint,
+        calculatedAmount,
         config.sell.slippageBps
       );
 
       if (!quoteResponse) {
-        throw new Error("Failed to get initial quote");
-      }
-
-      // Get final sell quote using calculated amount
-      const sellQuote = await this.getQuote(
-        tokenMint,
-        solMint,
-        quoteResponse.outAmount,
-        config.sell.slippageBps
-      );
-
-      if (!sellQuote) {
         throw new Error("Failed to get sell quote");
       }
 
-      this.desiredSolAmount = sellQuote.outAmount;
+      this.desiredSolAmount = quoteResponse.outAmount;
 
-      const serializedQuote = await this.serializeTransaction(sellQuote, {
+      const serializedQuote = await this.serializeTransaction(quoteResponse, {
         computeBudget: {
           maxLamports: config.sell.prio_fee_max_lamports,
           priorityLevel: config.sell.prio_level,
@@ -100,7 +85,7 @@ export class SellTokenTransaction extends BaseTransaction {
       await this.db.removeHolding(tokenMint);
 
       this.logger.log(
-        `Successfully sold ${formattedAmount} tokens for ${this.desiredSolAmount} SOL`
+        `Successfully sold ${calculatedAmount} tokens for ${this.desiredSolAmount} SOL`
       );
 
       return {
