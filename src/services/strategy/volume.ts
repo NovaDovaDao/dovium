@@ -21,6 +21,7 @@ export class VolumeStrategy {
   private readonly tradeIntervals: Map<string, number> = new Map();
   private readonly metrics: Map<string, TradeMetrics> = new Map();
   private readonly simulation_mode: boolean;
+  private isRunning: boolean = false;
 
   constructor(
     private readonly wallet: SolanaWallet, 
@@ -32,50 +33,37 @@ export class VolumeStrategy {
 
   async start(): Promise<void> {
     if (!config.volume_strategy.enabled) {
-      this.logger.info("Volume trading is disabled");
+      this.logger.info("Volume trading is disabled in config");
       return;
     }
 
     try {
-      const balance = await this.validateWalletBalance();
-      if (!balance) {
-        throw new Error("Could not fetch wallet balance");
-      }
-
-      this.logger.info("\n🚀 Starting volume trading bot...");
-      this.logger.info(`💳 Wallet: ${this.wallet.getPublicKey()}`);
-      this.logger.info(`💰 Balance: ${balance} SOL`);
-      this.logger.info(`📊 Mode: ${this.simulation_mode ? "🔬 Simulation" : "🚀 Live Trading"}`);
-      
+      this.isRunning = true;
+      await this.validateSetup();
       await this.initializeTradingPairs();
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      this.logger.error("Failed to start volume trading:", errorMsg);
-      
-      if (errorMsg.includes("balance")) {
-        this.logger.error("\nTroubleshooting:");
-        this.logger.error("1. Send SOL to wallet:", this.wallet.getPublicKey());
-        this.logger.error(`2. Minimum required: ${config.volume_strategy.pairs[0].min_trade_size} SOL`);
-      }
+      this.logger.error("Failed to start volume trading:", error);
+      this.stop();
     }
   }
 
-  private async validateWalletBalance(): Promise<string | null> {
-    try {
-      const balance = await this.wallet.getSolBalance();
-      if (!balance) return null;
-
-      const balanceInSol = balance.toString();
-      const minRequired = config.volume_strategy.pairs[0].min_trade_size;
-
-      if (balance.lt(minRequired)) {
-        throw new Error(`Insufficient wallet balance: ${balanceInSol} SOL (minimum required: ${minRequired} SOL)`);
-      }
-
-      return balanceInSol;
-    } catch (error) {
-      throw error;
+  private async validateSetup(): Promise<void> {
+    const balance = await this.wallet.getSolBalance();
+    if (!balance) {
+      throw new Error("Could not fetch wallet balance");
     }
+
+    const minRequired = config.volume_strategy.pairs[0].min_trade_size;
+    if (balance.lt(minRequired)) {
+      throw new Error(
+        `Insufficient wallet balance: ${balance.toString()} SOL (minimum required: ${minRequired} SOL)`
+      );
+    }
+
+    this.logger.info("\n🚀 Starting volume trading bot...");
+    this.logger.info(`💳 Wallet: ${this.wallet.getPublicKey()}`);
+    this.logger.info(`💰 Balance: ${balance.toString()} SOL`);
+    this.logger.info(`📊 Mode: ${this.simulation_mode ? "🔬 Simulation" : "🚀 Live Trading"}`);
   }
 
   private async initializeTradingPairs(): Promise<void> {
@@ -89,23 +77,29 @@ export class VolumeStrategy {
         failedTrades: 0
       });
 
+      // Start initial trading cycle
       await this.startTradingCycle(pair);
 
-      const interval = setInterval(
-        () => this.startTradingCycle(pair),
-        pair.trade_interval
-      );
-      this.tradeIntervals.set(pairId, interval);
+      // Set up interval for subsequent cycles if still running
+      if (this.isRunning) {
+        const interval = setInterval(
+          () => this.startTradingCycle(pair),
+          pair.trade_interval
+        );
+        this.tradeIntervals.set(pairId, interval);
 
-      this.logger.info(`\n📈 Initialized trading pair: ${pairId}`);
-      this.logger.info(`⏱️ Trade interval: ${pair.trade_interval}ms`);
-      this.logger.info(`💰 Trade size range: ${pair.min_trade_size} - ${pair.max_trade_size} SOL`);
+        this.logger.info(`\n📈 Initialized trading pair: ${pairId}`);
+        this.logger.info(`⏱️ Trade interval: ${pair.trade_interval}ms`);
+        this.logger.info(`💰 Trade size range: ${pair.min_trade_size} - ${pair.max_trade_size} SOL`);
+      }
     }
   }
 
   private async startTradingCycle(
     pair: (typeof config.volume_strategy.pairs)[0]
   ): Promise<void> {
+    if (!this.isRunning) return;
+
     const pairId = `${pair.base}-${pair.quote}`;
     
     try {
@@ -114,18 +108,27 @@ export class VolumeStrategy {
       this.logger.info(`\n🔄 Starting trading cycle for ${pairId}`);
       this.logger.info(`📊 Trade size: ${tradeSize} SOL`);
       
+      // Execute buy trade
       await this.executeTrade(pair.base, pair.quote, tradeSize, pairId);
       
+      // Add random delay between trades
       const delay = this.getRandomDelay(1000, 5000);
       this.logger.info(`⏳ Waiting ${delay}ms before sell trade...`);
       await this.sleep(delay);
       
-      await this.executeTrade(pair.quote, pair.base, tradeSize, pairId);
+      // Execute sell trade if still running
+      if (this.isRunning) {
+        await this.executeTrade(pair.quote, pair.base, tradeSize, pairId);
+      }
 
       this.updateMetrics(pairId, true, tradeSize);
     } catch (error) {
       this.logger.error(`Trading cycle failed for ${pairId}:`, error);
       this.updateMetrics(pairId, false, "0");
+      
+      // Add exponential backoff for errors
+      const backoffDelay = Math.min(1000 * Math.pow(2, this.metrics.get(pairId)?.failedTrades || 0), 30000);
+      await this.sleep(backoffDelay);
     }
   }
 
@@ -136,7 +139,7 @@ export class VolumeStrategy {
     pairId: string
   ): Promise<void> {
     if (this.simulation_mode) {
-      this.logger.info(`🔬 Simulating trade: ${inputMint} -> ${outputMint} (${amount})`);
+      this.logger.info(`🔬 Simulating trade: ${inputMint} -> ${outputMint} (${amount} SOL)`);
       return;
     }
 
@@ -150,7 +153,7 @@ export class VolumeStrategy {
     );
 
     if (!result.success) {
-      throw new Error(`Trade failed: ${result.error}`);
+      throw new Error(`Trade failed: ${result.error || 'Unknown error'}`);
     }
 
     this.logger.info(
@@ -163,9 +166,9 @@ export class VolumeStrategy {
   ): string {
     return new BigDenary(pair.max_trade_size)
       .minus(pair.min_trade_size)
-      .multipliedBy(Math.random().toFixed(6))
+      .multipliedBy(Math.random())
       .plus(pair.min_trade_size)
-      .toString();
+      .toFixed(9); // 9 decimals for SOL
   }
 
   private getRandomDelay(min: number, max: number): number {
@@ -203,6 +206,7 @@ export class VolumeStrategy {
   }
 
   stop(): void {
+    this.isRunning = false;
     this.tradeIntervals.forEach((interval) => clearInterval(interval));
     this.tradeIntervals.clear();
     

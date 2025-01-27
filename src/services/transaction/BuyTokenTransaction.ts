@@ -1,8 +1,8 @@
 // src/services/transaction/BuyTokenTransaction.ts
-
 import { BaseTransaction } from "./BaseTransaction.ts";
 import { config } from "../../config.ts";
 import { MintsDataReponse } from "../../core/types/Tracker.ts";
+import { QuoteResponse } from "../dex/jupiter/types.ts";
 
 export class BuyTokenTransaction extends BaseTransaction {
   async createSwapTransaction(
@@ -12,58 +12,86 @@ export class BuyTokenTransaction extends BaseTransaction {
   ): Promise<string | null> {
     try {
       let retryCount = 0;
+      let quoteResponse: QuoteResponse | null = null;
+      
       while (retryCount < config.swap.token_not_tradable_400_error_retries) {
         try {
-          const quoteResponse = await this.getQuote(
-            solMint,
-            tokenMint,
-            amount
+          // Add logging for debugging
+          this.logger.info(`Attempting to get quote (attempt ${retryCount + 1})`);
+          this.logger.info(`Input: ${solMint}, Output: ${tokenMint}, Amount: ${amount}`);
+          
+          // Get quote with timeout handling
+          const quotePromise = this.getQuote(solMint, tokenMint, amount);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Quote request timeout")), config.tx.get_timeout)
           );
-
+          
+          quoteResponse = await Promise.race([quotePromise, timeoutPromise]) as QuoteResponse | null;
+          
           if (!quoteResponse) {
-            throw new Error("Failed to get quote");
+            throw new Error("Failed to get quote - null response");
           }
-
-          const priorityConfig = {
-            computeBudget: {
-              units: 400000,
-              microLamports: 50000
-            }
-          };
-
-          const serializedQuote = await this.serializeTransaction(
-            quoteResponse,
-            priorityConfig
-          );
-
-          if (!serializedQuote) {
-            throw new Error("Failed to serialize transaction");
-          }
-
-          const txId = await this.executeTransaction(serializedQuote);
-          if (!txId) {
-            throw new Error("Failed to execute transaction");
-          }
-
-          // Allow some time for the transaction to be confirmed
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          return txId;
+          
+          // If we got a valid quote, break the retry loop
+          break;
+          
         } catch (error: any) {
+          this.logger.error(`Quote error (attempt ${retryCount + 1}):`, error);
+          
+          // Check for specific error conditions
           if (error.response?.status === 400 && 
               error.response?.data?.errorCode === "TOKEN_NOT_TRADABLE") {
             retryCount++;
-            await new Promise(resolve => 
-              setTimeout(resolve, config.swap.token_not_tradable_400_error_delay)
-            );
-            continue;
+            if (retryCount < config.swap.token_not_tradable_400_error_retries) {
+              await new Promise(resolve => 
+                setTimeout(resolve, config.swap.token_not_tradable_400_error_delay)
+              );
+              continue;
+            }
           }
+          
+          // For other errors or if we've exhausted retries
           throw error;
         }
       }
-      return null;
+
+      if (!quoteResponse) {
+        throw new Error("Failed to get quote after all retry attempts");
+      }
+
+      // Proceed with transaction creation
+      const priorityConfig = {
+        computeBudget: {
+          units: 400000,
+          microLamports: 50000
+        }
+      };
+
+      const serializedQuote = await this.serializeTransaction(
+        quoteResponse,
+        priorityConfig
+      );
+
+      if (!serializedQuote) {
+        throw new Error("Failed to serialize transaction");
+      }
+
+      const txId = await this.executeTransaction(serializedQuote);
+      if (!txId) {
+        throw new Error("Failed to execute transaction");
+      }
+
+      // Allow some time for transaction confirmation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      return txId;
+      
     } catch (error) {
-      this.logger.error("Buy transaction failed:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      this.logger.error("Buy transaction failed:", errorMessage);
+      if (config.swap.verbose_log) {
+        this.logger.error("Detailed error:", error);
+      }
       return null;
     }
   }
@@ -97,7 +125,7 @@ export class BuyTokenTransaction extends BaseTransaction {
 
         return { tokenMint: newTokenAccount, solMint: solTokenAccount };
       } catch (error: any) {
-        this.logger.log(`Attempt ${retryCount + 1} failed: ${error.message}`);
+        this.logger.error(`Attempt ${retryCount + 1} failed:`, error.message);
         retryCount++;
         
         if (retryCount < config.tx.fetch_tx_max_retries) {
