@@ -1,5 +1,4 @@
 // src/services/transaction/BaseTransaction.ts
-
 import { Buffer } from "node:buffer";
 import { VersionedTransaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
@@ -18,12 +17,6 @@ import {
   HoldingRecord,
   SwapEventDetailsResponse
 } from "../../core/types/Tracker.ts";
-
-interface TransactionExecutionResult {
-  success: boolean;
-  signature?: string;
-  error?: string;
-}
 
 export abstract class BaseTransaction {
   protected readonly logger = new Logger();
@@ -167,25 +160,26 @@ export abstract class BaseTransaction {
   ): Promise<HoldingRecord> {
     const tokenName = await this.getTokenName(swapDetails.tokenOutputs[0].mint);
     
-    const solPaidUsdc = new BigDenary(swapDetails.tokenInputs[0].tokenAmount)
-      .multipliedBy(solPrice);
-    const solFeePaidUsdc = new BigDenary(swapDetails.fee)
-      .dividedBy(LAMPORTS_PER_SOL)
-      .multipliedBy(solPrice);
-    const perTokenUsdcPrice = solPaidUsdc.dividedBy(
-      swapDetails.tokenOutputs[0].tokenAmount
-    );
+    // Convert amounts to numbers for calculations to avoid BigInt conversion issues
+    const tokenAmount = Number(swapDetails.tokenOutputs[0].tokenAmount);
+    const solAmount = Number(swapDetails.tokenInputs[0].tokenAmount) / LAMPORTS_PER_SOL;
+    const feeAmount = Number(swapDetails.fee) / LAMPORTS_PER_SOL;
+    
+    // Calculate USD values
+    const solPaidUsdc = solAmount * solPrice;
+    const solFeePaidUsdc = feeAmount * solPrice;
+    const perTokenUsdcPrice = tokenAmount > 0 ? solPaidUsdc / tokenAmount : 0;
 
     return {
       Time: swapDetails.timestamp,
       Token: swapDetails.tokenOutputs[0].mint,
       TokenName: tokenName,
-      Balance: swapDetails.tokenOutputs[0].tokenAmount,
-      SolPaid: swapDetails.tokenInputs[0].tokenAmount,
-      SolFeePaid: swapDetails.fee,
-      SolPaidUSDC: solPaidUsdc.valueOf(),
-      SolFeePaidUSDC: solFeePaidUsdc.valueOf(),
-      PerTokenPaidUSDC: perTokenUsdcPrice.valueOf(),
+      Balance: tokenAmount,
+      SolPaid: solAmount,
+      SolFeePaid: feeAmount,
+      SolPaidUSDC: solPaidUsdc,
+      SolFeePaidUSDC: solFeePaidUsdc,
+      PerTokenPaidUSDC: perTokenUsdcPrice,
       Slot: swapDetails.slot,
       Program: swapDetails.programInfo?.source || "N/A"
     };

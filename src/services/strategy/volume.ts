@@ -1,5 +1,3 @@
-// src/services/strategy/volume.ts
-
 import { Logger } from "jsr:@deno-library/logger";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 import { SolanaWallet } from "../solana/wallet.ts";
@@ -39,22 +37,44 @@ export class VolumeStrategy {
     }
 
     try {
-      await this.validateWalletBalance();
-      
+      const balance = await this.validateWalletBalance();
+      if (!balance) {
+        throw new Error("Could not fetch wallet balance");
+      }
+
       this.logger.info("\n🚀 Starting volume trading bot...");
       this.logger.info(`💳 Wallet: ${this.wallet.getPublicKey()}`);
+      this.logger.info(`💰 Balance: ${balance} SOL`);
       this.logger.info(`📊 Mode: ${this.simulation_mode ? "🔬 Simulation" : "🚀 Live Trading"}`);
       
       await this.initializeTradingPairs();
     } catch (error) {
-      this.logger.error("Failed to start volume trading:", error);
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      this.logger.error("Failed to start volume trading:", errorMsg);
+      
+      if (errorMsg.includes("balance")) {
+        this.logger.error("\nTroubleshooting:");
+        this.logger.error("1. Send SOL to wallet:", this.wallet.getPublicKey());
+        this.logger.error(`2. Minimum required: ${config.volume_strategy.pairs[0].min_trade_size} SOL`);
+      }
     }
   }
 
-  private async validateWalletBalance(): Promise<void> {
-    const balance = await this.wallet.getSolBalance();
-    if (!balance || balance.lt(config.volume_strategy.pairs[0].min_trade_size)) {
-      throw new Error("Insufficient wallet balance for trading");
+  private async validateWalletBalance(): Promise<string | null> {
+    try {
+      const balance = await this.wallet.getSolBalance();
+      if (!balance) return null;
+
+      const balanceInSol = balance.toString();
+      const minRequired = config.volume_strategy.pairs[0].min_trade_size;
+
+      if (balance.lt(minRequired)) {
+        throw new Error(`Insufficient wallet balance: ${balanceInSol} SOL (minimum required: ${minRequired} SOL)`);
+      }
+
+      return balanceInSol;
+    } catch (error) {
+      throw error;
     }
   }
 
@@ -69,10 +89,8 @@ export class VolumeStrategy {
         failedTrades: 0
       });
 
-      // Start initial trading cycle
       await this.startTradingCycle(pair);
 
-      // Set up interval for continuous trading
       const interval = setInterval(
         () => this.startTradingCycle(pair),
         pair.trade_interval
@@ -91,21 +109,17 @@ export class VolumeStrategy {
     const pairId = `${pair.base}-${pair.quote}`;
     
     try {
-      // Generate random trade size within configured range
       const tradeSize = this.getRandomTradeSize(pair);
       
-      // Execute buy trade
       this.logger.info(`\n🔄 Starting trading cycle for ${pairId}`);
       this.logger.info(`📊 Trade size: ${tradeSize} SOL`);
       
       await this.executeTrade(pair.base, pair.quote, tradeSize, pairId);
       
-      // Random delay between trades
       const delay = this.getRandomDelay(1000, 5000);
       this.logger.info(`⏳ Waiting ${delay}ms before sell trade...`);
       await this.sleep(delay);
       
-      // Execute sell trade
       await this.executeTrade(pair.quote, pair.base, tradeSize, pairId);
 
       this.updateMetrics(pairId, true, tradeSize);
