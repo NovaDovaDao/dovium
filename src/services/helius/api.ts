@@ -1,6 +1,7 @@
 import { Logger } from "jsr:@deno-library/logger";
 import axios from "axios";
 import { config } from "../../config.ts";
+import { TransactionDetailsResponse } from "./types.ts";
 
 export class HeliusApi {
   logger = new Logger();
@@ -20,7 +21,7 @@ export class HeliusApi {
   }
 
   transactions(transactions: string[]) {
-    return this.apiClient.post(
+    return this.apiClient.post<TransactionDetailsResponse>(
       "/v0/transactions",
       {
         transactions,

@@ -8,11 +8,11 @@ import {
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import bs58 from "bs58";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
-import { Logger } from "jsr:@deno-library/logger";
 import { config } from "../../config.ts";
+import { DoviumLogger } from "../../core/logger.ts";
 
 export class SolanaWallet {
-  private logger = new Logger();
+  private logger = new DoviumLogger(SolanaWallet.name);
   private wallet: Keypair | null = null;
 
   constructor(readonly connection: Connection, privateKey: string) {
@@ -111,7 +111,10 @@ export class SolanaWallet {
       return 9;
     }
   }
-  async getTokenBalance(mint: PublicKey | string): Promise<{ amount: bigint }> {
+
+  async getTokenBalance(
+    mint: PublicKey | string
+  ): Promise<{ amount: BigDenary }> {
     const mintPublicKey = typeof mint === "string" ? new PublicKey(mint) : mint;
 
     try {
@@ -128,10 +131,8 @@ export class SolanaWallet {
         if (!account.account.data.parsed?.info?.tokenAmount?.amount) {
           return acc;
         }
-        return (
-          acc + BigInt(account.account.data.parsed.info.tokenAmount.amount)
-        );
-      }, 0n);
+        return acc.plus(account.account.data.parsed.info.tokenAmount.amount);
+      }, new BigDenary(0));
 
       return { amount: totalBalance };
     } catch (error) {
@@ -139,17 +140,17 @@ export class SolanaWallet {
         `Error fetching token balance for ${mintPublicKey.toString()}:`,
         error
       );
-      return { amount: 0n };
+      return { amount: new BigDenary(0) };
     }
   }
 
   async validateTokenBalance(
     tokenMint: string,
-    amount: bigint
+    amount: number
   ): Promise<boolean> {
     try {
       const { amount: balance } = await this.getTokenBalance(tokenMint);
-      return balance >= amount;
+      return balance.greaterThan(amount);
     } catch (error) {
       this.logger.error("Error validating token balance:", error);
       return false;

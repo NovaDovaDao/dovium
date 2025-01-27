@@ -1,12 +1,15 @@
 // src/services/dex/jupiter/jupiter.ts
 
 import axios from "axios";
-import { GetPriceResponse, QuoteResponse } from "./types.ts";
+import {
+  GetPriceResponse,
+  QuoteResponse,
+  SerializedQuoteResponse,
+} from "./types.ts";
 import { Logger } from "jsr:@deno-library/logger";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { config } from "../../../config.ts";
-import { SerializedQuoteResponse } from "../../../core/types/Tracker.ts";
 
 export class JupiterApi {
   private logger = new Logger();

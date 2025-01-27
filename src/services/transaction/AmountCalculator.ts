@@ -1,196 +1,205 @@
 // src/services/utils/AmountCalculator.ts
 
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
-import { Logger } from "jsr:@deno-library/logger";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { SolanaWallet } from "../solana/wallet.ts";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { DoviumLogger } from "../../core/logger.ts";
 
 export class AmountCalculator {
- private logger = new Logger();
+  private logger = new DoviumLogger(AmountCalculator.name);
 
- constructor(private readonly wallet: SolanaWallet) {}
+  constructor(private readonly wallet: SolanaWallet) {}
 
- convertToLamports(amount: string | number): string {
-   return new BigDenary(amount)
-     .multipliedBy(LAMPORTS_PER_SOL)
-     .toFixed(0); // Remove decimals
- }
+  convertToLamports(amount: string | number): string {
+    return new BigDenary(amount).multipliedBy(LAMPORTS_PER_SOL).toFixed(0); // Remove decimals
+  }
 
- convertFromLamports(lamports: string | number): string {
-   return new BigDenary(lamports)
-     .div(LAMPORTS_PER_SOL)
-     .toString();
- }
+  convertFromLamports(lamports: string | number): string {
+    return new BigDenary(lamports).div(LAMPORTS_PER_SOL).toString();
+  }
 
- async calculateBuyAmount(
-   amount: string,
-   slippageTolerance = 0.005 // 0.5% default slippage tolerance
- ): Promise<{ rawAmount: bigint; formattedAmount: string }> {
-   try {
-     // Convert to lamports
-     const amountInLamports = this.convertToLamports(amount);
-     
-     // Add slippage buffer
-     const withSlippage = new BigDenary(amountInLamports)
-       .multipliedBy(1 + slippageTolerance)
-       .toFixed(0);
+  calculateBuyAmount(
+    amount: string,
+    slippageTolerance = 0.005 // 0.5% default slippage tolerance
+  ): { rawAmount: string; formattedAmount: string } {
+    try {
+      // Convert to lamports
+      const amountInLamports = this.convertToLamports(amount);
 
-     const formattedAmount = this.convertFromLamports(withSlippage);
+      // Add slippage buffer
+      const withSlippage = new BigDenary(amountInLamports)
+        .multipliedBy(1 + slippageTolerance)
+        .toFixed(0);
 
-     this.logger.info(
-       `Buy amount: ${amount} SOL → ${withSlippage} lamports ` +
-       `(with ${slippageTolerance * 100}% slippage)`
-     );
+      const formattedAmount = this.convertFromLamports(withSlippage);
 
-     return {
-       rawAmount: BigInt(withSlippage),
-       formattedAmount
-     };
-   } catch (error) {
-     this.logger.error("Error calculating buy amount:", error);
-     throw error;
-   }
- }
+      this.logger.log(
+        `Buy amount: ${amount} SOL → ${withSlippage} lamports ` +
+          `(with ${slippageTolerance * 100}% slippage)`
+      );
 
- async calculateSellAmount(
-   tokenMint: string,
-   tokenDecimals: number,
-   originalBuyAmount: BigDenary
- ): Promise<{ rawAmount: bigint; formattedAmount: string }> {
-   try {
-     // Get token accounts
-     const tokenAccounts = await this.wallet.connection.getParsedTokenAccountsByOwner(
-       new PublicKey(this.wallet.getPublicKey()!),
-       {
-         programId: TOKEN_PROGRAM_ID,
-         mint: new PublicKey(tokenMint)
-       }
-     );
+      return {
+        rawAmount: withSlippage,
+        formattedAmount,
+      };
+    } catch (error) {
+      this.logger.error("Error calculating buy amount:", error);
+      throw error;
+    }
+  }
 
-     // Calculate total balance
-     const totalBalance = tokenAccounts.value.reduce((acc, account) => {
-       const tokenAmount = account.account.data.parsed.info.tokenAmount;
-       return acc + BigInt(tokenAmount.amount);
-     }, 0n);
+  async calculateSellAmount(
+    tokenMint: string,
+    tokenDecimals: number,
+    originalBuyAmount: string
+  ): Promise<{ rawAmount: BigDenary; formattedAmount: string }> {
+    try {
+      // Get token accounts
+      const tokenAccounts =
+        await this.wallet.connection.getParsedTokenAccountsByOwner(
+          new PublicKey(this.wallet.getPublicKey()!),
+          {
+            programId: TOKEN_PROGRAM_ID,
+            mint: new PublicKey(tokenMint),
+          }
+        );
 
-     // Convert original buy amount to lamports for comparison
-     const originalBuyLamports = this.convertToLamports(originalBuyAmount.toString());
+      // Calculate total balance with correct decimal places
+      const totalBalance = tokenAccounts.value.reduce((acc, account) => {
+        const tokenAmount = account.account.data.parsed.info.tokenAmount;
+        const scaledAmount = new BigDenary(tokenAmount.amount).dividedBy(
+          10 ** tokenDecimals
+        ); // Scale by decimals
+        return acc.plus(scaledAmount);
+      }, new BigDenary(0));
 
-     // Use either total balance or original buy amount, whichever is smaller
-     const baseAmount = BigInt(Math.min(
-       Number(totalBalance), 
-       Number(originalBuyLamports)
-     ));
+      // Convert original buy amount to appropriate scale for comparison
+      const originalBuyScaled = new BigDenary(originalBuyAmount).div(
+        10 ** tokenDecimals
+      );
 
-     // Use 95% of amount to account for price impact and fees
-     const sellAmount = (baseAmount * 95n) / 100n;
-     const formattedAmount = this.convertFromLamports(sellAmount.toString());
+      // Use either total balance or original buy amount (whichever is smaller)
+      const baseAmount = totalBalance.lt(originalBuyScaled)
+        ? totalBalance
+        : originalBuyScaled;
 
-     this.logger.info(
-       `Selling ${formattedAmount} tokens from ` +
-       `total balance of ${this.convertFromLamports(totalBalance.toString())}`
-     );
+      // Use 95% of amount to account for price impact and fees
+      const sellAmount = baseAmount.multipliedBy(95).div(100); // Use times() for multiplication
 
-     return {
-       rawAmount: sellAmount,
-       formattedAmount
-     };
-   } catch (error) {
-     this.logger.error("Error calculating sell amount:", error);
-     throw error;
-   }
- }
+      // Format the sell amount for display, keeping all decimals
+      const formattedAmount = sellAmount.toString();
 
- async validateBalance(
-   amount: bigint,
-   mint: string,
-   isBuy: boolean,
-   slippageBuffer = 0.01 // 1% additional buffer for fees and slippage
- ): Promise<void> {
-   if (isBuy) {
-     const solBalance = await this.wallet.getSolBalance();
-     if (!solBalance) throw new Error("Could not fetch SOL balance");
+      this.logger.log(
+        `Selling ${formattedAmount} tokens from ` +
+          `total balance of ${totalBalance.toString()}`
+      );
 
-     const requiredBalance = new BigDenary(amount.toString())
-       .multipliedBy(1 + slippageBuffer); // Add slippage buffer
+      return {
+        rawAmount: sellAmount,
+        formattedAmount,
+      };
+    } catch (error) {
+      this.logger.error("Error calculating sell amount:", error);
+      throw error;
+    }
+  }
 
-     if (solBalance.lt(requiredBalance)) {
-       throw new Error(
-         `Insufficient SOL balance. Required: ${this.convertFromLamports(requiredBalance.toString())} SOL, ` +
-         `Available: ${this.convertFromLamports(solBalance.toString())} SOL`
-       );
-     }
-   } else {
-     const tokenAccounts = await this.wallet.connection.getParsedTokenAccountsByOwner(
-       new PublicKey(this.wallet.getPublicKey()!),
-       {
-         programId: TOKEN_PROGRAM_ID,
-         mint: new PublicKey(mint)
-       }
-     );
+  async validateBalance(
+    amount: string,
+    mint: string,
+    isBuy: boolean,
+    slippageBuffer = 0.01 // 1% additional buffer for fees and slippage
+  ): Promise<void> {
+    if (isBuy) {
+      const solBalance = await this.wallet.getSolBalance();
+      if (!solBalance) throw new Error("Could not fetch SOL balance");
 
-     const totalBalance = tokenAccounts.value.reduce((acc, account) => {
-       const tokenAmount = account.account.data.parsed.info.tokenAmount;
-       return acc + BigInt(tokenAmount.amount);
-     }, 0n);
+      const requiredBalance = new BigDenary(amount.toString()).multipliedBy(
+        1 + slippageBuffer
+      ); // Add slippage buffer
 
-     if (totalBalance < amount) {
-       throw new Error(
-         `Insufficient token balance. Required: ${amount.toString()}, ` +
-         `Available: ${totalBalance.toString()}`
-       );
-     }
-   }
- }
+      if (solBalance.lt(requiredBalance)) {
+        throw new Error(
+          `Insufficient SOL balance. Required: ${this.convertFromLamports(
+            requiredBalance.toString()
+          )} SOL, ` +
+            `Available: ${this.convertFromLamports(solBalance.toString())} SOL`
+        );
+      }
+    } else {
+      const tokenAccounts =
+        await this.wallet.connection.getParsedTokenAccountsByOwner(
+          new PublicKey(this.wallet.getPublicKey()!),
+          {
+            programId: TOKEN_PROGRAM_ID,
+            mint: new PublicKey(mint),
+          }
+        );
 
- async getMaxBuyAmount(
-   safetyFactor = 0.95 // Use 95% of balance by default
- ): Promise<{ rawAmount: bigint; formattedAmount: string }> {
-   const solBalance = await this.wallet.getSolBalance();
-   if (!solBalance) throw new Error("Could not fetch SOL balance");
+      const totalBalance = tokenAccounts.value.reduce((acc, account) => {
+        const tokenAmount = account.account.data.parsed.log.tokenAmount;
+        return acc.plus(tokenAmount.amount);
+      }, new BigDenary(0));
 
-   // Reserve some SOL for fees
-   const reserveForFees = new BigDenary("0.01"); // 0.01 SOL
-   const availableBalance = solBalance.minus(reserveForFees);
+      if (totalBalance.lessThan(amount)) {
+        throw new Error(
+          `Insufficient token balance. Required: ${amount.toString()}, ` +
+            `Available: ${totalBalance.toString()}`
+        );
+      }
+    }
+  }
 
-   if (availableBalance.lte(0)) {
-     throw new Error("Insufficient balance after reserving for fees");
-   }
+  async getMaxBuyAmount(
+    safetyFactor = 0.95 // Use 95% of balance by default
+  ): Promise<{ rawAmount: string; formattedAmount: string }> {
+    const solBalance = await this.wallet.getSolBalance();
+    if (!solBalance) throw new Error("Could not fetch SOL balance");
 
-   // Apply safety factor
-   const maxAmount = availableBalance
-     .multipliedBy(safetyFactor)
-     .toFixed(0);
+    // Reserve some SOL for fees
+    const reserveForFees = new BigDenary("0.01"); // 0.01 SOL
+    const availableBalance = solBalance.minus(reserveForFees);
 
-   return {
-     rawAmount: BigInt(maxAmount),
-     formattedAmount: this.convertFromLamports(maxAmount)
-   };
- }
+    if (availableBalance.lte(0)) {
+      throw new Error("Insufficient balance after reserving for fees");
+    }
 
- async getMaxSellAmount(
-   tokenMint: string,
-   safetyFactor = 0.95
- ): Promise<{ rawAmount: bigint; formattedAmount: string }> {
-   const tokenAccounts = await this.wallet.connection.getParsedTokenAccountsByOwner(
-     new PublicKey(this.wallet.getPublicKey()!),
-     {
-       programId: TOKEN_PROGRAM_ID,
-       mint: new PublicKey(tokenMint)
-     }
-   );
+    // Apply safety factor
+    const maxAmount = availableBalance.multipliedBy(safetyFactor).toFixed(0);
 
-   const totalBalance = tokenAccounts.value.reduce((acc, account) => {
-     const tokenAmount = account.account.data.parsed.info.tokenAmount;
-     return acc + BigInt(tokenAmount.amount);
-   }, 0n);
+    return {
+      rawAmount: maxAmount,
+      formattedAmount: this.convertFromLamports(maxAmount),
+    };
+  }
 
-   const maxAmount = (totalBalance * BigInt(Math.floor(safetyFactor * 100))) / 100n;
+  async getMaxSellAmount(
+    tokenMint: string,
+    safetyFactor = 0.95
+  ): Promise<{ rawAmount: string; formattedAmount: string }> {
+    const tokenAccounts =
+      await this.wallet.connection.getParsedTokenAccountsByOwner(
+        new PublicKey(this.wallet.getPublicKey()!),
+        {
+          programId: TOKEN_PROGRAM_ID,
+          mint: new PublicKey(tokenMint),
+        }
+      );
 
-   return {
-     rawAmount: maxAmount,
-     formattedAmount: this.convertFromLamports(maxAmount.toString())
-   };
- }
+    const totalBalance = tokenAccounts.value.reduce((acc, account) => {
+      const tokenAmount = account.account.data.parsed.log.tokenAmount;
+      return acc.plus(tokenAmount.amount);
+    }, new BigDenary(0));
+
+    const maxAmount = totalBalance
+      .multipliedBy(Math.floor(safetyFactor * 100))
+      .dividedBy(100n)
+      .toFixed(0);
+
+    return {
+      rawAmount: maxAmount,
+      formattedAmount: this.convertFromLamports(maxAmount.toString()),
+    };
+  }
 }

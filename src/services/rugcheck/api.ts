@@ -1,6 +1,6 @@
 import axios from "axios";
 import { config } from "../../config.ts";
-import { RugResponseExtended } from "../../core/types/Tracker.ts";
+import { RugResponseExtended } from "./types.ts";
 
 export class RugCheckApi {
   apiClient = axios.create({

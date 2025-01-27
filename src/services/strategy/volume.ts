@@ -1,8 +1,8 @@
-import { Logger } from "jsr:@deno-library/logger";
 import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
 import { SolanaWallet } from "../solana/wallet.ts";
 import { TransactionService } from "../transaction/TransactionService.ts";
 import { config } from "../../config.ts";
+import { DoviumLogger } from "../../core/logger.ts";
 
 interface VolumeOptions {
   simulation_mode?: boolean;
@@ -14,9 +14,10 @@ interface TradeMetrics {
   successfulTrades: number;
   failedTrades: number;
 }
+type Pair = (typeof config.volume_strategy.pairs)[0];
 
 export class VolumeStrategy {
-  private readonly logger = new Logger();
+  private readonly logger = new DoviumLogger(VolumeStrategy.name);
   private readonly transactionService: TransactionService;
   private readonly tradeIntervals: Map<string, number> = new Map();
   private readonly metrics: Map<string, TradeMetrics> = new Map();
@@ -24,7 +25,7 @@ export class VolumeStrategy {
   private isRunning: boolean = false;
 
   constructor(
-    private readonly wallet: SolanaWallet, 
+    private readonly wallet: SolanaWallet,
     options: VolumeOptions = {}
   ) {
     this.simulation_mode = options.simulation_mode ?? false;
@@ -33,7 +34,7 @@ export class VolumeStrategy {
 
   async start(): Promise<void> {
     if (!config.volume_strategy.enabled) {
-      this.logger.info("Volume trading is disabled in config");
+      this.logger.log("Volume trading is disabled in config");
       return;
     }
 
@@ -60,21 +61,21 @@ export class VolumeStrategy {
       );
     }
 
-    this.logger.info("\n🚀 Starting volume trading bot...");
-    this.logger.info(`💳 Wallet: ${this.wallet.getPublicKey()}`);
-    this.logger.info(`💰 Balance: ${balance.toString()} SOL`);
-    this.logger.info(`📊 Mode: ${this.simulation_mode ? "🔬 Simulation" : "🚀 Live Trading"}`);
+    this.logger.log(`💰 Balance: ${balance.toString()} SOL`);
+    this.logger.log(
+      `📊 Mode: ${this.simulation_mode ? "🔬 Simulation" : "🚀 Live Trading"}`
+    );
   }
 
   private async initializeTradingPairs(): Promise<void> {
     for (const pair of config.volume_strategy.pairs) {
       const pairId = `${pair.base}-${pair.quote}`;
-      
+
       this.metrics.set(pairId, {
         totalVolume: new BigDenary(0),
         trades: 0,
         successfulTrades: 0,
-        failedTrades: 0
+        failedTrades: 0,
       });
 
       // Start initial trading cycle
@@ -88,87 +89,102 @@ export class VolumeStrategy {
         );
         this.tradeIntervals.set(pairId, interval);
 
-        this.logger.info(`\n📈 Initialized trading pair: ${pairId}`);
-        this.logger.info(`⏱️ Trade interval: ${pair.trade_interval}ms`);
-        this.logger.info(`💰 Trade size range: ${pair.min_trade_size} - ${pair.max_trade_size} SOL`);
+        this.logger.log(`\n📈 Initialized trading pair: ${pairId}`);
+        this.logger.log(`⏱️ Trade interval: ${pair.trade_interval}ms`);
+        this.logger.log(
+          `💰 Trade size range: ${pair.min_trade_size} - ${pair.max_trade_size} SOL`
+        );
       }
     }
   }
 
-  private async startTradingCycle(
-    pair: (typeof config.volume_strategy.pairs)[0]
-  ): Promise<void> {
+  private async startTradingCycle(pair: Pair): Promise<void> {
     if (!this.isRunning) return;
 
     const pairId = `${pair.base}-${pair.quote}`;
-    
+
     try {
       const tradeSize = this.getRandomTradeSize(pair);
-      
-      this.logger.info(`\n🔄 Starting trading cycle for ${pairId}`);
-      this.logger.info(`📊 Trade size: ${tradeSize} SOL`);
-      
-      // Execute buy trade
-      await this.executeTrade(pair.base, pair.quote, tradeSize, pairId);
-      
-      // Add random delay between trades
-      const delay = this.getRandomDelay(1000, 5000);
-      this.logger.info(`⏳ Waiting ${delay}ms before sell trade...`);
-      await this.sleep(delay);
-      
+
+      this.logger.log(`\n🔄 Starting trading cycle for ${pairId}`);
+      this.logger.log(`📊 Trade size: ${tradeSize} SOL`);
+
+      const trade = this.executeTrade(pair, tradeSize);
+      // // Execute buy trade
+      // await trade("buy");
+
+      // // Add random delay between trades
+      // const delay = this.getRandomDelay(1000, 5000);
+      // this.logger.log(`⏳ Waiting ${delay}ms before sell trade...`);
+      // await this.sleep(delay);
+
       // Execute sell trade if still running
       if (this.isRunning) {
-        await this.executeTrade(pair.quote, pair.base, tradeSize, pairId);
+        await trade("sell");
       }
 
       this.updateMetrics(pairId, true, tradeSize);
     } catch (error) {
       this.logger.error(`Trading cycle failed for ${pairId}:`, error);
       this.updateMetrics(pairId, false, "0");
-      
+
       // Add exponential backoff for errors
-      const backoffDelay = Math.min(1000 * Math.pow(2, this.metrics.get(pairId)?.failedTrades || 0), 30000);
+      const backoffDelay = Math.min(
+        1000 * Math.pow(2, this.metrics.get(pairId)?.failedTrades || 0),
+        30000
+      );
       await this.sleep(backoffDelay);
     }
   }
 
-  private async executeTrade(
-    inputMint: string,
-    outputMint: string,
-    amount: string,
-    pairId: string
-  ): Promise<void> {
-    if (this.simulation_mode) {
-      this.logger.info(`🔬 Simulating trade: ${inputMint} -> ${outputMint} (${amount} SOL)`);
-      return;
-    }
-
-    const result = await this.transactionService.executeBuyTransaction(
-      inputMint, 
-      outputMint,
-      { 
-        skipRugCheck: true,
-        amount: amount
+  private executeTrade(pair: Pair, amountSol: string) {
+    return async (action: "buy" | "sell") => {
+      if (this.simulation_mode) {
+        this.logger.log(
+          `🔬 Simulating ${action}: ${
+            action === "buy" ? pair.quote : pair.base
+          } (${amountSol} SOL)`
+        );
+        return;
       }
-    );
 
-    if (!result.success) {
-      throw new Error(`Trade failed: ${result.error || 'Unknown error'}`);
-    }
+      const result =
+        action === "buy"
+          ? await this.transactionService.executeBuyTransaction(
+              pair.base,
+              pair.quote,
+              {
+                skipRugCheck: true,
+                amount: amountSol,
+              }
+            )
+          : await this.transactionService.executeSellTransaction(
+              pair.base,
+              pair.quote,
+              amountSol
+            );
 
-    this.logger.info(
-      `✅ Trade executed successfully: https://solscan.io/tx/${result.txId}`
-    );
+      if (!result.success) {
+        throw new Error(`Trade failed: ${result.error || "Unknown error"}`);
+      }
+
+      this.logger.verbose(
+        `✅ Trade executed successfully: https://solscan.io/tx/${result.txId}`
+      );
+    };
   }
 
   private getRandomTradeSize(
     pair: (typeof config.volume_strategy.pairs)[0]
   ): string {
-    return new BigDenary(pair.max_trade_size)
-      .minus(pair.min_trade_size)
+    const minTradeSize = new BigDenary(pair.min_trade_size);
+    const maxTradeSize = new BigDenary(pair.max_trade_size);
+    const result = maxTradeSize
+      .minus(minTradeSize)
       .multipliedBy(Math.random())
-      .plus(pair.min_trade_size)
-      .toFixed(9); // 9 decimals for SOL
+      .plus(minTradeSize);
+
+    return result.toFixed(9); // 9 decimals for SOL
   }
 
   private getRandomDelay(min: number, max: number): number {
@@ -179,7 +195,11 @@ export class VolumeStrategy {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private updateMetrics(pairId: string, success: boolean, volume: string): void {
+  private updateMetrics(
+    pairId: string,
+    success: boolean,
+    volume: string
+  ): void {
     const metrics = this.metrics.get(pairId);
     if (!metrics) return;
 
@@ -195,13 +215,16 @@ export class VolumeStrategy {
   }
 
   private logMetrics(pairId: string, metrics: TradeMetrics): void {
-    this.logger.info(`\n📊 Trading Metrics for ${pairId}:`);
-    this.logger.info(`Total Trades: ${metrics.trades}`);
-    this.logger.info(`Successful: ${metrics.successfulTrades}`);
-    this.logger.info(`Failed: ${metrics.failedTrades}`);
-    this.logger.info(`Total Volume: ${metrics.totalVolume.toString()} SOL`);
-    this.logger.info(
-      `Success Rate: ${(metrics.successfulTrades / metrics.trades * 100).toFixed(2)}%`
+    this.logger.log(`\n📊 Trading Metrics for ${pairId}:`);
+    this.logger.log(`Total Trades: ${metrics.trades}`);
+    this.logger.log(`Successful: ${metrics.successfulTrades}`);
+    this.logger.log(`Failed: ${metrics.failedTrades}`);
+    this.logger.log(`Total Volume: ${metrics.totalVolume.toString()} SOL`);
+    this.logger.log(
+      `Success Rate: ${(
+        (metrics.successfulTrades / metrics.trades) *
+        100
+      ).toFixed(2)}%`
     );
   }
 
@@ -209,12 +232,12 @@ export class VolumeStrategy {
     this.isRunning = false;
     this.tradeIntervals.forEach((interval) => clearInterval(interval));
     this.tradeIntervals.clear();
-    
+
     for (const [pairId, metrics] of this.metrics.entries()) {
-      this.logger.info(`\n🔚 Final Metrics for ${pairId}:`);
+      this.logger.verbose(`\n🔚 Final Metrics for ${pairId}:`);
       this.logMetrics(pairId, metrics);
     }
-    
-    this.logger.info("\n✅ Volume trading bot stopped");
+
+    this.logger.verbose("\n✅ Volume trading bot stopped");
   }
 }

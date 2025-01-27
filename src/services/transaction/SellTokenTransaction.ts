@@ -6,9 +6,10 @@ import { config } from "../../config.ts";
 import { createSellTransactionResponse } from "../../core/types/Tracker.ts";
 import { AmountCalculator } from "./AmountCalculator.ts";
 import { SolanaWallet } from "../solana/wallet.ts";
-import { BigDenary } from "https://deno.land/x/bigdenary@1.0.0/mod.ts";
+import { DoviumLogger } from "../../core/logger.ts";
 
 export class SellTokenTransaction extends BaseTransaction {
+  override logger = new DoviumLogger(SellTokenTransaction.name);
   private amountCalculator: AmountCalculator;
   private desiredSolAmount: string = "";
 
@@ -16,7 +17,7 @@ export class SellTokenTransaction extends BaseTransaction {
     super(wallet);
     this.amountCalculator = new AmountCalculator(wallet);
   }
-
+  // FIXME: calculate amounts better
   async createSellTransaction(
     solMint: string,
     tokenMint: string,
@@ -32,13 +33,20 @@ export class SellTokenTransaction extends BaseTransaction {
         await this.amountCalculator.calculateSellAmount(
           tokenMint,
           tokenDecimals,
-          new BigDenary(originalBuyAmount)
+          originalBuyAmount
         );
+
+      console.table([
+        tokenDecimals,
+        rawAmount,
+        formattedAmount,
+        originalBuyAmount,
+      ]);
 
       // Validate the token balance before proceeding
       const hasBalance = await this.wallet.validateTokenBalance(
         tokenMint,
-        rawAmount
+        rawAmount.valueOf()
       );
       if (!hasBalance) {
         throw new Error(
@@ -91,7 +99,7 @@ export class SellTokenTransaction extends BaseTransaction {
 
       await this.db.removeHolding(tokenMint);
 
-      this.logger.info(
+      this.logger.log(
         `Successfully sold ${formattedAmount} tokens for ${this.desiredSolAmount} SOL`
       );
 
